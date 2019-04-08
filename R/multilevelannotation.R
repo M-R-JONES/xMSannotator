@@ -87,6 +87,8 @@
 #' are also assigned to the same module. "p": boosts the scores if there are
 #' other metabolites from the same pathway without accounting for module
 #' membership.
+#' @param missing.permute Number of permutations performed during missing
+#' values replacement procedure.
 #' @return The function generates output at each stage: Stage 1 includes
 #' modules and retention time based clustering of features without any
 #' annotation Stage 2 includes modules and retention time based clustering of
@@ -113,165 +115,229 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     queryadductlist = c("all"), gradienttype = "Acetonitrile", 
     mode = "pos", outloc, db_name = "HMDB", adduct_weights = NA, 
     num_sets = 3000, allsteps = TRUE, corthresh = 0.7, NOPS_check = TRUE, 
-    customIDs = NA, missing.value = NA, deepsplit = 2, networktype = "unsigned", 
+    customIDs = NA, missing.value = NA, missing.permute = 100, deepsplit = 2, networktype = "unsigned", 
     minclustsize = 10, module.merge.dissimilarity = 0.2, 
     filter.by = c("M+H"), redundancy_check = TRUE, min_ions_perchem = 1, 
     biofluid.location = NA, origin = NA, status = NA, boostIDs = NA, 
     max_isp = 5, MplusH.abundance.ratio.check = FALSE, customDB = NA, 
     HMDBselect = "union", mass_defect_window = 0.01, mass_defect_mode = "pos", 
     dbAllinf = NA, pathwaycheckmode = "pm") {
+  
+  
+  library(WGCNA)
+  
+  #temporary work around to having to load all parameters one by one.
+  vars = list( max.mz.diff = 10, 
+               max.rt.diff = 10, cormethod = "pearson", num_nodes = 2, 
+               queryadductlist = c("all"), gradienttype = "Acetonitrile", 
+               mode = "pos", outloc = 'temp/outputs/', db_name = "Custom", adduct_weights = NA, 
+               num_sets = 3000, allsteps = TRUE, corthresh = 0.7, NOPS_check = TRUE, 
+               customIDs = NA, missing.value = 'permute_uniform', missing.permute = 100, deepsplit = 2, networktype = "unsigned", 
+               minclustsize = 10, module.merge.dissimilarity = 0.2, 
+               filter.by = c("M+H"), redundancy_check = TRUE, min_ions_perchem = 1, 
+               biofluid.location = NA, origin = NA, status = NA, boostIDs = NA, 
+               max_isp = 5, MplusH.abundance.ratio.check = FALSE, customDB = NA, 
+               HMDBselect = "union", mass_defect_window = 0.01, mass_defect_mode = "pos", 
+               dbAllinf = NA, pathwaycheckmode = "pm")
+  
+  for(i in 1:length(vars)) assign(names(vars)[i], vars[[i]])
+  rm(vars)
+  
+  options(warn = -1)
+  allowWGCNAThreads(nThreads = num_nodes)
+
+  #load the adducts table
+  setwd('~')
+  load(paste(getwd(), 'Git/xMSannotator/data/adducts_enviPat.rda', sep='/'))
+  #data(adducts_enviPat) #this should be used in final script
+  
+  ###### MOCK STRUCTURE OF TABLE ####
+  # | Adduct     | num_molecules | charge | adductMass |  Mode     | Type | Merge_add | Merge_sub |
+  # | M          | 1             | 1      | 0.000000   |  neutral  | S    | <NA>      | <NA>      |
+  # | ...        | ...           | ...    | ...        |  ...      | ...  | ...       | ...       |
+  # | 2M-2H+NH4  | 2             | 1      | 16.019271  |  negative | S    | N1H4      | H2        |
+  
+  #define outloc location (output folder path)
+  if(outloc == ''){
+    outloc = paste(getwd(), outloc, sep = '')
+  }
+  #Create the output directory and set as the current working directory
+  suppressWarnings(dir.create(outloc))
+  setwd(outloc)
+  
+  #check if dataA exists and if not, use the faahko dataset as a model.
+  
+  if(exists('dataA') == FALSE){
     
-    options(warn = -1)
+    print('Using faahko package data to test workflow')
+    library(faahKO)
+    library(xcms)
+    library(CAMERA)
     
-    allowWGCNAThreads(nThreads = num_nodes)
+    #group peaks across samples
+    xs = group(faahko)
+    #convert the grouped peaks matrix in to a xsAnnotate object and then export the peaklist
+    dataA = getPeaklist(xsAnnotate(xs))
     
+    #refine the peaklist to include the mz, retention time and intensities for each feature in the dataset
+    col_indxs = c(which(colnames(dataA) == 'mz'), which(colnames(dataA) == 'rt'), 
+                  seq((which(colnames(dataA) == 'WT')+1), (which(colnames(dataA) == 'isotopes')-1), 1))
+    dataA = dataA[,col_indxs]
     
-    dataA <- as.data.frame(dataA)
-    dataA$mz <- round(dataA$mz, 5)
+    colnames(dataA)[which(colnames(dataA) == 'rt')] = "time"
+    
+    dataA$mz <- round(dataA$mz, 7)
     dataA$time <- round(dataA$time, 1)
+  }
+  
+  #round all intensity values to 1 decimal place
+  dataA[, -c(1:2)] <- round(dataA[, -c(1:2)], 1)
     
-    dataA[, -c(1:2)] <- round(dataA[, -c(1:2)], 1)
+  #define the dissimiliarity metric for merging dendrogram branches during clustering
+  if (is.na(module.merge.dissimilarity) == TRUE) {
+    module.merge.dissimilarity = 1 - corthresh
+  }
+  
+  
+  if (is.na(customIDs) == FALSE){
+    customIDs = as.data.frame(customIDs)
+  }
+  
+  print(paste("Annotating using ", db_name, " database:", sep = ""))
     
-    if (is.na(module.merge.dissimilarity) == TRUE) {
+  max_diff_rt <- max.rt.diff
+  cutheight = 1 - corthresh  #module.merge.dissimilarity
+  time_step = 1
+  step1log2scale = FALSE
+    
+  ###### Seemingly not used #######
+  # if (FALSE) {
+  #     adduct_table$Adduct <- gsub(adduct_table$Adduct, 
+  #         pattern = "2M\\+2H", replacement = "M+H")
+  #     adduct_table$Adduct <- gsub(adduct_table$Adduct, 
+  #         pattern = "3M\\+3H", replacement = "M+H")
+  #     
+  #     adduct_table$Adduct <- gsub(adduct_table$Adduct, 
+  #         pattern = "2M\\+2Na", replacement = "M+Na")
+  #     adduct_table$Adduct <- gsub(adduct_table$Adduct, 
+  #         pattern = "3M\\+3Na", replacement = "M+Na")
+  #     
+  #     adduct_table$Adduct <- gsub(adduct_table$Adduct, 
+  #         pattern = "2M\\+2K", replacement = "M+K")
+  #     adduct_table$Adduct <- gsub(adduct_table$Adduct, 
+  #         pattern = "3M\\+3K", replacement = "M+K")
+  # }
+  #
+  # adduct_table <- unique(adduct_table)
+    
+  
+    
+  #create a subset of valid adducts to consider
+  if (queryadductlist == "all" & mode == "pos") {
+      adduct_names <- adduct_table$Adduct[(adduct_table$Type == "S" & adduct_table$Mode == "positive") | 
+                                            (adduct_table$Type == gradienttype & adduct_table$Mode == "positive")]
+      adduct_table <- adduct_table[which(adduct_table$Adduct %in% adduct_names), ]
+  } else {
+      if (queryadductlist == "all" & mode == "neg") {
+          adduct_names <- adduct_table$Adduct[(adduct_table$Type == "S" & adduct_table$Mode == "negative") | 
+                                                (adduct_table$Type == gradienttype & adduct_table$Mode == "negative")]
+          adduct_table <- adduct_table[which(adduct_table$Adduct %in% adduct_names), ]
+      } else {
+          adduct_names <- adduct_table$Adduct[which(adduct_table$Adduct %in% queryadductlist)]
+          adduct_table <- adduct_table[which(adduct_table$Adduct %in% adduct_names), ]
+      }
+  }
+    
+  #ensure that adduct names are unique after previous filtering step
+  adduct_names <- unique(adduct_names)
+    
+  #set up objects for processing
+  res_list <- list()
+  db_name_list = db_name
+  outloc_allres <- outloc
+    
+  #check whether results from step1 of the processing pipeline have already been generated
+  l1 <- list.files(outloc_allres)
+  check_step1 <- which(l1 == "step1_results.Rda")
         
-        module.merge.dissimilarity = 1 - corthresh
-    }
-    
-    
-    
-    if (is.na(customIDs) == FALSE) {
         
-        customIDs = as.data.frame(customIDs)
-    }
-    
-    
-    
-    data(adduct_table)
-    
-    
-    print(paste("Annotating using ", db_name, " database:", 
-        sep = ""))
-    
-    max_diff_rt <- max.rt.diff
-    cutheight = 1 - corthresh  #module.merge.dissimilarity
-    time_step = 1
-    step1log2scale = FALSE
-    
-    if (FALSE) {
-        adduct_table$Adduct <- gsub(adduct_table$Adduct, 
-            pattern = "2M\\+2H", replacement = "M+H")
-        adduct_table$Adduct <- gsub(adduct_table$Adduct, 
-            pattern = "3M\\+3H", replacement = "M+H")
+  if (length(check_step1) < 1) {
+          
+    print("Status 1: Computing modules using WGCNA")
         
-        adduct_table$Adduct <- gsub(adduct_table$Adduct, 
-            pattern = "2M\\+2Na", replacement = "M+Na")
-        adduct_table$Adduct <- gsub(adduct_table$Adduct, 
-            pattern = "3M\\+3Na", replacement = "M+Na")
-        
-        adduct_table$Adduct <- gsub(adduct_table$Adduct, 
-            pattern = "2M\\+2K", replacement = "M+K")
-        adduct_table$Adduct <- gsub(adduct_table$Adduct, 
-            pattern = "3M\\+3K", replacement = "M+K")
-    }
-    
-    adduct_table <- unique(adduct_table)
-    
-    suppressWarnings(dir.create(outloc))
-    setwd(outloc)
-    
-    if (queryadductlist == "all" & mode == "pos") {
-        
-        adduct_names <- adduct_table$Adduct[(adduct_table$Type == 
-            "S" & adduct_table$Mode == "positive") | (adduct_table$Type == 
-            gradienttype & adduct_table$Mode == "positive")]
-        
-        adduct_table <- adduct_table[which(adduct_table$Adduct %in% 
-            adduct_names), ]
-        
-    } else {
-        if (queryadductlist == "all" & mode == "neg") {
+    check_levelA <- which(l1 == "xMSannotator_levelA_modules.Rda")
+          
+    if (is.na(missing.value) == FALSE) {
             
-            adduct_names <- adduct_table$Adduct[(adduct_table$Type == 
-                "S" & adduct_table$Mode == "negative") | 
-                (adduct_table$Type == gradienttype & adduct_table$Mode == 
-                  "negative")]
-            adduct_table <- adduct_table[which(adduct_table$Adduct %in% 
-                adduct_names), ]
-        } else {
-            
-            adduct_names <- adduct_table$Adduct[which(adduct_table$Adduct %in% 
-                queryadductlist)]
-            
-            adduct_table <- adduct_table[which(adduct_table$Adduct %in% 
-                adduct_names), ]
-            
+      ## when 'missing.value' is set to NA, replace all missing values with NA
+      # causes clustering to fail when too many missing values occur in the matrix
+      dataA <- replace(as.matrix(dataA), which(dataA == missing.value), NA)
+      dataA <- as.data.frame(dataA)
+      
+    } else if(missing.value == 'permute_uniform'){
+      
+      ##preferred approach replaces missing values with values derived from a uniform distribution between -1 and +1
+      ##replacement from uniform distribution is permuted multiple times and the average calculated 
+      capture = list()
+      for(i in 1:missing.permute){
+        dataA_fill = dataA[,-c(1,2)]
+        while(i < missing.permute){
+          dataA_fill[is.na(dataA_fill)] = runif(n = length(which(is.na(dataA_fill) == TRUE)), -1, 1) 
+          capture[[i]] = dataA_fill
+          i = i + 1
         }
+      }
+      
+      #export matrices from list and convert to array of dimensions (#rows, #cols, #matrices)
+      arr <- array(unlist(capture), dim = c(dim(capture[[1]]),length(capture)))
+      
+      #calculate 'average' correlation coefficient (for values that were not NA earlier, this will remain unchanged)
+      result = rowMeans(arr, dim = 2) 
+      
+      result = cbind(dataA[,c(1:2)], result)
+      colnames(result) = colnames(dataA)
+      dataA = result
+      
+      rm('result')
+      rm('capture')
+      
     }
     
-    adduct_names <- unique(adduct_names)
+    #create a series of unique mzid strings
+    mzid <- paste(dataA$mz, dataA$time, sep = "_")
     
-    res_list <- new("list")
+    #remove rows with identical mz and retention time pair (rounding might cause inaccuracy here)
+    if (length(which(duplicated(mzid) == TRUE)) > 0) {
+        dataA <- dataA[-which(duplicated(mzid) == TRUE), ]
+    }
+      
+      colnames(result) <- colnames(dataA_fill) #assign column and row names to the global correction matrix
+      rownames(result) <- mzid
+      
+      dataA = result
+      rm(result)
+      rm(dataA_fill)
+      rm(capture)
+    }
     
-    db_name_list = db_name
-    
-    outloc_allres <- outloc
-    
-    # for(db_index in 1:length(db_name_list))
-    {
-        
-        # db_name=db_name_list[db_index]
-        
-        # outloc<-paste(outloc_allres,'/',db_name,'results',sep='')
-        
-        
-        l1 <- list.files(outloc_allres)
-        
-        check_step1 <- which(l1 == "step1_results.Rda")
-        
-        
-        if (length(check_step1) < 1) {
+    # dataA<-dataA[order(dataA$mz,dataA$time),]
             
-            print("Status 1: Computing modules using WGCNA")
+    system.time(global_cor <- WGCNA::cor(t(dataA[,-c(1:2)]), nThreads = num_nodes, method = cormethod, use = "p"))
             
-            check_levelA <- which(l1 == "xMSannotator_levelA_modules.Rda")
+    global_cor <- round(global_cor, 2)
             
-            if (is.na(missing.value) == FALSE) {
-                dataA <- replace(as.matrix(dataA), which(dataA == 
-                  missing.value), NA)
-                dataA <- as.data.frame(dataA)
-            }
+    dataA <- unique(dataA)
+    setwd(outloc_allres)
             
-            dataA <- unique(dataA)
-            
-            
-            mzid <- paste(dataA$mz, dataA$time, sep = "_")
-            
-            if (length(which(duplicated(mzid) == TRUE)) > 
-                0) {
-                dataA <- dataA[-which(duplicated(mzid) == 
-                  TRUE), ]
-            }
-            
-            # dataA<-dataA[order(dataA$mz,dataA$time),]
-            
-            mzid <- paste(dataA$mz, dataA$time, sep = "_")
-            
-            system.time(global_cor <- WGCNA::cor(t(dataA[, 
-                -c(1:2)]), nThreads = num_nodes, method = cormethod, 
-                use = "p"))
-            
-            global_cor <- round(global_cor, 2)
-            
-            dataA <- unique(dataA)
-            setwd(outloc_allres)
-            
-            mzid <- paste(dataA$mz, dataA$time, sep = "_")
-            colnames(global_cor) <- mzid
-            rownames(global_cor) <- mzid
+    mzid <- paste(dataA$mz, dataA$time, sep = "_")
+    colnames(global_cor) <- mzid
+    rownames(global_cor) <- mzid
             
             save(global_cor, file = "global_cor.Rda")
             
             mycl_metabs = NA
+            
+            
             hr = flashClust(as.dist(1 - global_cor), method = "complete")
             dissTOMCormat <- (1 - global_cor)
             
