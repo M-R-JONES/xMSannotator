@@ -1,0 +1,7 @@
+Change log:
+
+- added faahKO processing with xcms and CAMERA packages to generate model data for workflow testing
+- added missing value filling through permuting random selection of variables from uniform distribution
+- updated section involving comparisons to user-defined database - simplified the if/else structure
+- HMDB query section simplified
+- import the customDB as a dataframe without the need for further conversions between character and numeric

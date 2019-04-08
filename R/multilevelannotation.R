@@ -128,7 +128,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   
   #temporary work around to having to load all parameters one by one.
   vars = list( max.mz.diff = 10, 
-               max.rt.diff = 10, cormethod = "pearson", clustmethod == "WGCNA", num_nodes = 2, 
+               max.rt.diff = 10, cormethod = "pearson", clustmethod = "WGCNA", num_nodes = 2, 
                queryadductlist = c("all"), gradienttype = "Acetonitrile", 
                mode = "pos", outloc = 'temp/outputs/', db_name = "Custom", adduct_weights = NA, 
                num_sets = 3000, allsteps = TRUE, corthresh = 0.7, NOPS_check = TRUE, 
@@ -183,11 +183,17 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     #refine the peaklist to include the mz, retention time and intensities for each feature in the dataset
     col_indxs = c(which(colnames(dataA) == 'mz'), which(colnames(dataA) == 'rt'), 
                   seq((which(colnames(dataA) == 'WT')+1), (which(colnames(dataA) == 'isotopes')-1), 1))
+    
+    #subset the dataframe to keep only those columns corresponding to mz, rt and intensities across samples, for each feature
     dataA = dataA[,col_indxs]
     
+    #convert column name from 'rt' to 'time'
     colnames(dataA)[which(colnames(dataA) == 'rt')] = "time"
     
+    #round mz values to 7 d.p.
     dataA$mz <- round(dataA$mz, 7)
+    
+    #round retention time values to 1 d.p.
     dataA$time <- round(dataA$time, 1)
   }
   
@@ -494,6 +500,8 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         #keep found compounds
         if(!is.null(gres)){
           customIDs <- hmdbAllinfv3.6[gres, c(1, 20)]
+        }else{
+          customIDs = ''
         }
       
       })
@@ -531,448 +539,395 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     } else if (db_name == "KEGG") {
 
       data(keggCompMZ)
-                  
+      
+      #round all KEGG compound mz values to 5 d.p.            
       keggCompMZ$mz <- round(as.numeric(as.character(keggCompMZ$mz)), 5)
-                  
+      
+      #fix the naming of KEGG compounds
       keggCompMZ$Name <- gsub(keggCompMZ$Name, pattern = "[\\\"']", replacement = "")
+      
+      suppressWarnings(if (is.na(customIDs) == FALSE) {
+        
+        #map KEGG compound mz values to those provided in the user-specified customIDs object (column#1 = mz values in custom list)
+        customIDs <- unique(customIDs)
+        keggCompMZ <- keggCompMZ[which(keggCompMZ$KEGGID %in% customIDs[, 1]), ]
+        keggCompMZ <- keggCompMZ[which(keggCompMZ$Adduct %in% adduct_names), ]
+      
+      })
+      
+      #confirm which KEGG compound adducts are found in the adduct names list
+      keggCompMZ <- keggCompMZ[which(keggCompMZ$Adduct %in% adduct_names), ]
+      chemCompMZ <- keggCompMZ
+      
+      print("Dimension of precomputed KEGG m/z database")
+      print(dim(chemCompMZ))
                   
-                  
-                  
-                  suppressWarnings(if (is.na(customIDs) == 
-                    FALSE) {
-                    
-                    customIDs <- unique(customIDs)
-                    
-                    
-                    keggCompMZ <- keggCompMZ[which(keggCompMZ$KEGGID %in% 
-                      customIDs[, 1]), ]
-                    
-                    keggCompMZ <- keggCompMZ[which(keggCompMZ$Adduct %in% 
-                      adduct_names), ]
-                  })
-                  
-                  keggCompMZ <- keggCompMZ[which(keggCompMZ$Adduct %in% 
-                    adduct_names), ]
-                  chemCompMZ <- keggCompMZ
-                  
-                  print("Dimension of precomputed KEGG m/z database")
-                  print(dim(chemCompMZ))
-                  
-                  rm(keggCompMZ)
-                  
-                  rm(keggCompMZ, envir = .GlobalEnv)
-                  
-                } else {
-                  
-                  if (db_name == "LipidMaps") {
-                    
-                    
-                    data(lipidmapsCompMZ)
-                    lipidmapsCompMZ <- lipidmapsCompMZ[which(lipidmapsCompMZ$Adduct %in% 
-                      adduct_names), ]
-                    
-                    lipidmapsCompMZ$mz <- round(as.numeric(as.character(lipidmapsCompMZ$mz)), 
-                      5)
-                    
-                    lipidmapsCompMZ$Name <- gsub(lipidmapsCompMZ$Name, 
-                      pattern = "[\\\"']", replacement = "")
-                    
-                    chemCompMZ <- lipidmapsCompMZ
-                    
-                    print("Dimension of precomputed LipidMaps m/z database")
-                    print(dim(chemCompMZ))
-                    
-                    rm(lipidmapsCompMZ)
-                    rm(lipidmapsCompMZ, envir = .GlobalEnv)
-                    
-                    
-                  } else {
-                    if (db_name == "T3DB") {
+      rm(keggCompMZ)
+      rm(keggCompMZ, envir = .GlobalEnv)
+        
+    } else if (db_name == "LipidMaps") {
+      
+      #import the lipidmaps compounds list
+      data(lipidmapsCompMZ)
+        
+      #map lipidmaps adduct forms to those in the adduct_names list (i.e. confirm which lipidmaps adducts are being considered)
+      lipidmapsCompMZ <- lipidmapsCompMZ[which(lipidmapsCompMZ$Adduct %in% adduct_names), ]
+        
+      #ensure lipidmap compound mz values are rounded to 5 d.p.
+      lipidmapsCompMZ$mz <- round(as.numeric(as.character(lipidmapsCompMZ$mz)), 5)
+      
+      #fix naming of lipidmap compounds
+      lipidmapsCompMZ$Name <- gsub(lipidmapsCompMZ$Name, pattern = "[\\\"']", replacement = "")
+    
+      chemCompMZ <- lipidmapsCompMZ
+    
+      print("Dimension of precomputed LipidMaps m/z database")
+      print(dim(chemCompMZ))
+    
+      #clean up
+      rm(lipidmapsCompMZ)
+      rm(lipidmapsCompMZ, envir = .GlobalEnv)
+    
+    } else if (db_name == "T3DB") {
                       
-                      
-                      
-                      data(t3dbCompMZ)
-                      t3dbCompMZ <- t3dbCompMZ[which(t3dbCompMZ$Adduct %in% 
-                        adduct_names), ]
-                      
-                      t3dbCompMZ$mz <- round(as.numeric(as.character(t3dbCompMZ$mz)), 
-                        5)
-                      
-                      t3dbCompMZ$Name <- gsub(t3dbCompMZ$Name, 
-                        pattern = "[\\\"']", replacement = "")
-                      chemCompMZ <- t3dbCompMZ
-                      
-                      print("Dimension of precomputed T3DB m/z database")
-                      print(dim(chemCompMZ))
-                      
-                      rm(t3dbCompMZ)
-                      rm(t3dbCompMZ, envir = .GlobalEnv)
-                      
-                      
-                    } else {
-                      
-                      if (db_name == "Custom") {
-                        
-                        data(adducts_enviPat)
-                    
-                        #read in suspect screening database
-                        inputmassmat <- customDB
-                        
-                        # compound ID   |   name            | monoisotopic mass (neutral)   | molecular formula (uncharged) | 
-                        # CID1001       |   Phenethylamine  |   121.089                     | C8H11N                        |
-                        # CID6305       |   Tryptophan      |   204.09                      | C11H12N2O2                    |
-                        # ...           |   ...             |   ...                         | ...                           |
-                        # CID6057       |   tyrosine        |   181.074                     | C9H11NO3                      |
-                        
-                        #remove any duplicate values in the database (based on compound ID value)
-                        if (length(which(duplicated(inputmassmat[,1]) == TRUE)) > 0) {
-                          inputmassmat <- inputmassmat[-which(duplicated(inputmassmat[,1]) == TRUE), ]
-                        }
-                        
-                        mz_search_list <- lapply(1:dim(inputmassmat)[1], function(m) {
-                          
-                          adduct_names <- as.character(adduct_names)
-                          
-                          mz_search_list <- get_mz_by_monoisotopicmass(
-                            
-                            monoisotopicmass = as.numeric(as.character(inputmassmat[m,4])), 
-                            dbid = inputmassmat[m,1], 
-                            name = as.character(inputmassmat[m,2]), 
-                            formula = as.character(inputmassmat[m,3]), 
-                            queryadductlist = adduct_names, 
-                            adduct_table = adduct_table)
-                          
-                            return(mz_search_list)
-                        
-                          })
-                        
-                        mz_search_list <- ldply(mz_search_list,rbind)
-                        save(mz_search_list, file = "mz_search_list.Rda")
-                        chemCompMZ <- mz_search_list
-                        rm(mz_search_list)
-                        rm(customDB)
-                        rm(customDB, envir = .GlobalEnv)
+      #import T3db compounds
+      data(t3dbCompMZ)
+      
+      #ensure only those adducts in adduct_names object are being considered from the T3db object
+      t3dbCompMZ <- t3dbCompMZ[which(t3dbCompMZ$Adduct %in% adduct_names), ]
+      
+      #round t3db compound mz values to 5 d.p.      
+      t3dbCompMZ$mz <- round(as.numeric(as.character(t3dbCompMZ$mz)), 5)
+      
+      #fix names for t3db compounds
+      t3dbCompMZ$Name <- gsub(t3dbCompMZ$Name,pattern = "[\\\"']", replacement = "")
+      chemCompMZ <- t3dbCompMZ
+      
+      print("Dimension of precomputed T3DB m/z database")
+      print(dim(chemCompMZ))
+      
+      rm(t3dbCompMZ)
+      rm(t3dbCompMZ, envir = .GlobalEnv)
+      
+      
+    } else if (db_name == "Custom") {
+      
+      load("adducts_enviPat.rda")
+      
+      load("customDB.rda")
+      
+      #read in suspect screening database
+      #inputmassmat <- customDB
+      
+      colnames(customDB)[which(colnames(customDB)=='ID')] = 'CompoundID'
+      colnames(customDB)[which(colnames(customDB)=='Name')] = 'Name'
+      colnames(customDB)[which(colnames(customDB)=='Formula')] = 'Formula'
+      colnames(customDB)[which(colnames(customDB)=='MonoisotopicMass')] = 'MonoisotopicMass'
+      
+      #outline of custom database format
+      # CompoundID    |   Name            |   Monoisotopic mass   | Formula     | 
+      # CID1001       |   Phenethylamine  |   121.089             | C8H11N      |
+      # CID6305       |   Tryptophan      |   204.09              | C11H12N2O2  |
+      # ...           |   ...             |   ...                 | ...         |
+      # CID6057       |   tyrosine        |   181.074             | C9H11NO3    |
+      
+      #remove any duplicate values in the database (based on compound ID value)
+      if (length(which(duplicated(customDB$CompoundID) == TRUE)) > 0) {
+        inputmassmat <- customDB[-which(duplicated(customDB$CompoundID) == TRUE), ]
+      }
+      
+      #for each compound in the custom database, extract the mz, database ID, name and formula
+      if(length(which(colnames(customDB)=='CompoundID')) == 0){
+        stop("column name 'CompoundID' is missing in the custom database")
+      }
+      
+      if(length(which(colnames(customDB)=='Formula')) == 0){
+        stop("column name 'Formula' is missing in the custom database")
+      }
+      
+      if(length(which(colnames(customDB)=='MonoisotopicMass')) == 0){
+        stop("column name 'MonoisotopicMass' is missing in the custom database")
+      }
+      
+      if(length(which(colnames(customDB)=='Name')) == 0){
+        stop("column name 'Name' is missing in the custom database")
+      }
+      
+      #create suspect screening database (update overcomes annoyance of having all columns as factors)
+      mz_search_list <- ddply(customDB, ~CompoundID, function(row.in){
+        
+        #extract compound information from the input database and define the skeleton for the dataframe containing this information
+        mz_search_list <- get_mz_by_monoisotopicmass(monoisotopicmass = row.in$MonoisotopicMass, 
+                                                     dbid = row.in$CompoundID, 
+                                                     name = row.in$Name, 
+                                                     formula = row.in$Formula,
+                                                     queryadductlist = adduct_names, 
+                                                     adduct_table = adduct_table)
+        
+        return(mz_search_list)
+      
+      })
+      
+      #write the suspect screening dataframe to "mz_search_list.rda" object
+      save(mz_search_list, file = "mz_search_list.Rda")
+        
+      #define chemCompMZ as the input suspect screening list
+      chemCompMZ <- mz_search_list
+        
+      #clean up
+      rm(mz_search_list)
+      rm(customDB)
+      rm(customDB, envir = .GlobalEnv)
 
-                      } else {
-                        
-                        stop("db_name should be: KEGG, HMDB, T3DB, LipidMaps, or Custom")
-                        
-                      }
-                    }
-                  }
-            }
-
-  data(adduct_table)
+  } else {
+      
+      stop("db_name should be: KEGG, HMDB, T3DB, LipidMaps, or Custom")
+  }
   
+
+  load('adduct_table.rda')
+  
+  #if adduct_weights was not defined when executing function, set [M+/-H] as the only adducts with defined weights
   if (is.na(adduct_weights) == TRUE) {
       data(adduct_weights)
-      adduct_weights1 <- matrix(nrow = 2, ncol = 2, 
-        0)
+      adduct_weights1 <- matrix(nrow = 2, ncol = 2, 0)
       adduct_weights1[1, ] <- c("M+H", 1)
       adduct_weights1[2, ] <- c("M-H", 1)
       adduct_weights <- as.data.frame(adduct_weights1)
       colnames(adduct_weights) <- c("Adduct", "Weight")
       adduct_weights <- as.data.frame(adduct_weights)
-      
+      rm(adduct_weights1)
   }
   
-  chemCompMZ$Name <- gsub("([-:();])|[[:punct:]]", 
-      "\\1", chemCompMZ$Name)
-  chemCompMZ$Formula <- gsub("([-:();])|[[:punct:]]", 
-      "\\1", chemCompMZ$Formula)
+  #fix naming of some compounds
+  chemCompMZ$Name <- gsub("([-:();])|[[:punct:]]", "\\1", chemCompMZ$Name)
+  chemCompMZ$Formula <- gsub("([-:();])|[[:punct:]]","\\1", chemCompMZ$Formula)
   
-            
-            cnames <- colnames(chemCompMZ)
-            
-            cnames[2] <- "chemical_ID"
-            colnames(chemCompMZ) <- cnames
-            
-            
-            
-            
-            randsetsize <- 1000
-            if (dim(dataA)[1] < 1000) {
+  #ensure naming of columns is consistent with earlier function names
+  if(grep('CompoundID', colnames(chemCompMZ)) > 0){
+    chemCompMZ$chemical_ID = NULL
+    colnames(chemCompMZ)[grep('CompoundID', colnames(chemCompMZ))] = 'chemical_ID'
+  }else{
+    #original command to rename column from ID to chemical_ID
+    colnames(chemCompMZ)[which(colnames(chemCompMZ) == 'ID')] = 'chemical_ID'
+  }
+  
+  #if less-than 1000 peaks in the matrix, set the randsetsize to that value, otherwise leave as 1000
+  if (dim(dataA)[1] < 1000) {
+    randsetsize <- dim(dataA)[1]
+  }else{
+    randsetsize <- 1000
+  }
+  
+  setwd(outloc)
+  
+  #target list and associated adducts are saved
+  save(chemCompMZ, file = "chemCompMZ.Rda")
+  
+  #confirm whether levelB checks have already been performed
+  l1 <- list.files(outloc)
+  check_levelB <- which(l1 == "xMSannotator_levelB.Rda")
+  
+  if (length(check_levelB) < 1) {
+    
+    #set up cluster for parallel processing purposes
+    cl <- makeSOCKcluster(num_nodes)
+    
+    #load all required packages
+    clusterApply(cl, list('XML', 'R2HTML', 'RCurl', 'SSOAP', 'limma', 'plyr', 'png'), require, character.only = T)
+    
+    clusterEvalQ(cl, library('plyr'))
+
+    #setwd(file.path(getwd(), '/', fsep=''))
+    #funcs = list.files(getwd(), full.names = F, pattern = '.R', recursive = F)
+    #funcs = funcs[-which(funcs=='multilevelannotation.R')]
+    #funcs = funcs[-which(funcs=='xMSannotator_multilevelannotation_MJ.R')]
+    #lapply(funcs, function(x) {source(x)})
+    
+    #parse required functions to cluster
+    clusterEvalQ(cl, "processWSDL")
+    clusterExport(cl, "Annotationbychemical_IDschild_multilevel")
+    clusterExport(cl, "Annotationbychemical_IDschild")
+    clusterExport(cl, "find.Overlapping.mzs")
+    clusterExport(cl, "find.Overlapping.mzsvparallel")
+    clusterExport(cl, "overlapmzchild")
+    clusterExport(cl, "getVenn")
+    
+    if (length(which(duplicated(chemCompMZ$Formula) == TRUE)) > 0) {
+        
+      #with new approach to making database, no need for this step        
+      #if (db_name == "Custom") {
+      #  chemCompMZ$mz <- as.numeric(as.character(chemCompMZ$mz))
+      #}
+      
+      chemCompMZ_unique_formulas <- chemCompMZ[-which(duplicated(chemCompMZ$Formula) == TRUE), ]
+      
+      chemCompMZ_unique_formulas <- rbind(chemCompMZ_unique_formulas, chemCompMZ[which(chemCompMZ$chemical_ID %in% 
+          chemCompMZ_unique_formulas$chemical_ID),])
+      
+      chemCompMZ_unique_formulas <- unique(chemCompMZ_unique_formulas)
+      chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[order(chemCompMZ_unique_formulas$chemical_ID),]
+    } else {
+      chemCompMZ_unique_formulas <- chemCompMZ
+    }
                 
-                randsetsize <- dim(dataA)[1]
-            }
+                
+    # save(chemCompMZ_unique_formulas,file='chemCompMZ_unique_formulas.Rda')
+    save(chemCompMZ, file = "chemCompMZ.Rda")
+    rm(chemCompMZ)
+    
+    #set up a unique string for each formula in the suspect screening database
+    formula_table <- table(chemCompMZ_unique_formulas$Formula)
+    uniq_formulas <- names(formula_table)
+    formula_ID <- paste("Formula", seq(1:length(uniq_formulas)), sep = "_")
+    
+    #generate a dataframe linking unique suspect screening formulae with unique formulae ID values
+    formula_id_mat <- data.frame("Formula_ID" = formula_ID, "Formula" = uniq_formulas)
+    
+    #associate each chemical ID with a unique formula ID (IMPORTANT TABLE FOR TRACEBACK)
+    #THIS APPROACH ENSURES THAT COMPOUNDS WITH IDENTICAL FORMULAE BUT DIFFERENT NAMES, ARE RETAINED IN THE DATA FRAME
+    chemCompMZ_unique_formulas <- merge(chemCompMZ_unique_formulas, formula_id_mat, by = "Formula")
+    chemCompMZ_unique_formulas$chemical_ID <- chemCompMZ_unique_formulas$Formula_ID
+    chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[, c("mz", "chemical_ID", "Name", "Formula", 
+        "MonoisotopicMass", "Adduct", "AdductMass")]
+    
+    #generate factor object containing all unique chemical ID values
+    chemIDs <- unique(chemCompMZ_unique_formulas$chemical_ID)
+    
+    s1 <- seq(1, length(adduct_names))
+    
+    ######################## STAGE 2 OF SCORING PROCESS BEGINS HERE ######################
+    
+    print("Status 2: Mapping m/z to metabolites:")
+                
+    # annotation_multilevel_ save(list=ls(),file='test.Rda')
+    # system.time(l2<-parLapply(cl,s1,Annotationbychemical_IDschild_multilevel,dataA=dataA,
+    # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
+    # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes))
+    
+    # a1<-Annotationbychemical_IDschild_multilevel(1,dataA=dataA,
+    # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
+    # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes)
+    
+    # a1<-Annotationbychemical_IDschild(1,dataA=dataA,
+    # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
+    # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,num_nodes=num_nodes)
+    
+    setwd('~')
+    outloc = file.path(getwd(), outloc, fsep='/')
+    
+    #run stage2 of the processing            
+    l2 <- parLapply(cl, s1, Annotationbychemical_IDschild, 
+      dataA = dataA, queryadductlist = c(adduct_names), 
+      adduct_type = c("S", gradienttype), adduct_table = adduct_table, 
+      max.mz.diff = max.mz.diff, outloc = outloc, 
+      keggCompMZ = chemCompMZ_unique_formulas, 
+      otherdbs = FALSE, otherinfo = FALSE, num_nodes = num_nodes)
+    
+    stopCluster(cl)
+    
+    levelB_res = ldply(l2, rbind)
+    
+    #clean up
+    rm(chemCompMZ)
+    rm(l2)
             
+    if (nrow(levelB_res) < 1) {
+      stop("No matches found.")
+    }
+    
+    levelB_res$MatchCategory = 'Multiple'
+    
+    #levelB_res$mz <- as.numeric(as.character(levelB_res$mz))
+    #levelB_res$time <- as.numeric(as.character(levelB_res$time))
+    #levelB_res <- as.data.frame(levelB_res)
+    #levelB_res <- cbind(levelB_res, MatchCategory)
+    
+    print("DB matches")
+    levelB_res <- unique(levelB_res)
+    print(dim(levelB_res))
             
-            
-            chemCompMZ <- as.data.frame(chemCompMZ)
-            
-            setwd(outloc)
-            l1 <- list.files(outloc)
-            check_levelB <- which(l1 == "xMSannotator_levelB.Rda")
-            
-            save(chemCompMZ, file = "chemCompMZ.Rda")
-            # save(list=ls(),file='matching_data.Rda')
-            
-            if (length(check_levelB) < 1) {
+    uniq_formula <- as.character(unique(levelB_res$Formula))
                 
-                cl <- makeSOCKcluster(num_nodes)
+    bad_formula <- which(is.na(uniq_formula) == TRUE)
+    
+    if (length(bad_formula) > 0) {
+      uniq_formula <- uniq_formula[-c(bad_formula)]
+    }
                 
-                clusterEvalQ(cl, library(XML))
-                clusterEvalQ(cl, library(R2HTML))
-                clusterEvalQ(cl, library(RCurl))
-                clusterEvalQ(cl, library(SSOAP))
-                clusterEvalQ(cl, library(limma))
+    #set up for checking formula validity
+    cl <- makeSOCKcluster(num_nodes)
+    clusterExport(cl, "check_golden_rules")
+    clusterExport(cl, "check_element")
                 
-                clusterEvalQ(cl, library(plyr))
-                
-                clusterEvalQ(cl, "processWSDL")
-                clusterEvalQ(cl, library(png))
-                clusterExport(cl, "Annotationbychemical_IDschild_multilevel")
-                
-                clusterExport(cl, "Annotationbychemical_IDschild")
-                
-                clusterExport(cl, "find.Overlapping.mzs")
-                clusterExport(cl, "find.Overlapping.mzsvparallel")
-                
-                clusterExport(cl, "overlapmzchild")
-                clusterExport(cl, "getVenn")
-                
-                if (length(which(duplicated(chemCompMZ$Formula) == 
-                  TRUE)) > 0) {
-                  
-                  if (db_name == "Custom") {
-                    # chemCompMZ_unique_formulas<-chemCompMZ
+    levelB_res_check <- parLapply(cl, 1:length(uniq_formula), function(j, uniq_formula, NOPS_check) {
+    
+                      curformula <- as.character(uniq_formula[j])
                     
-                    # chemCompMZ_unique_formulas<-as.data.frame(chemCompMZ_unique_formulas)
-                    
-                    # chemCompMZ_unique_formulas$mz<-as.numeric(as.character(chemCompMZ_unique_formulas$mz))
-                    
-                    
-                    chemCompMZ$mz <- as.numeric(as.character(chemCompMZ$mz))
-                    
-                    
-                  }
-                  chemCompMZ_unique_formulas <- chemCompMZ[-which(duplicated(chemCompMZ$Formula) == 
-                    TRUE), ]
-                  chemCompMZ_unique_formulas <- rbind(chemCompMZ_unique_formulas, 
-                    chemCompMZ[which(chemCompMZ$chemical_ID %in% 
-                      chemCompMZ_unique_formulas$chemical_ID), 
-                      ])
-                  chemCompMZ_unique_formulas <- unique(chemCompMZ_unique_formulas)
-                  chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[order(chemCompMZ_unique_formulas$chemical_ID), 
-                    ]
-                  
-                  
-                } else {
-                  
-                  chemCompMZ_unique_formulas <- chemCompMZ
-                }
-                
-                
-                # save(chemCompMZ_unique_formulas,file='chemCompMZ_unique_formulas.Rda')
-                save(chemCompMZ, file = "chemCompMZ.Rda")
-                rm(chemCompMZ)
-                
-                # formula_ID<-paste('Formula',seq(1:dim(chemCompMZ_unique_formulas)[1]),sep='_')
-                # chemCompMZ_unique_formulas$chemical_ID<-formula_ID
-                
-                
-                
-                formula_table <- table(chemCompMZ_unique_formulas$Formula)
-                uniq_formulas <- names(formula_table)
-                formula_ID <- paste("Formula", seq(1:length(uniq_formulas)), 
-                  sep = "_")
-                
-                formula_id_mat <- cbind(formula_ID, uniq_formulas)
-                formula_id_mat <- as.data.frame(formula_id_mat)
-                colnames(formula_id_mat) <- c("Formula_ID", 
-                  "Formula")
-                
-                chemCompMZ_unique_formulas <- merge(chemCompMZ_unique_formulas, 
-                  formula_id_mat, by = "Formula")
-                
-                chemCompMZ_unique_formulas$chemical_ID <- chemCompMZ_unique_formulas$Formula_ID
-                chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[, 
-                  c("mz", "chemical_ID", "Name", "Formula", 
-                    "MonoisotopicMass", "Adduct", "AdductMass")]
-                
-                chemCompMZ_unique_formulas <- as.data.frame(chemCompMZ_unique_formulas)
-                
-                chemIDs <- unique(chemCompMZ_unique_formulas$chemical_ID)  #unique(chemCompMZ$Formula) #
-                
-                
-                # save(chemCompMZ_unique_formulas,file='chemCompMZ_unique_formulasB.Rda')
-                
-                
-                
-                
-                # s1<-seq(1,length(chemIDs))
-                s1 <- seq(1, length(adduct_names))
-                print("Status 2: Mapping m/z to metabolites:")
-                
-                # write.csv(chemCompMZ,file='chemCompMZ.csv')
-                
-                adduct_names <- as.character(adduct_names)
-                
-                
-                # annotation_multilevel_ save(list=ls(),file='test.Rda')
-                # system.time(l2<-parLapply(cl,s1,Annotationbychemical_IDschild_multilevel,dataA=dataA,
-                # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
-                # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes))
-                
-                # a1<-Annotationbychemical_IDschild_multilevel(1,dataA=dataA,
-                # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
-                # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes)
-                
-                # a1<-Annotationbychemical_IDschild(1,dataA=dataA,
-                # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
-                # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,num_nodes=num_nodes)
-                
-                
-                l2 <- parLapply(cl, s1, Annotationbychemical_IDschild, 
-                  dataA = dataA, queryadductlist = c(adduct_names), 
-                  adduct_type = c("S", gradienttype), adduct_table = adduct_table, 
-                  max.mz.diff = max.mz.diff, outloc = outloc, 
-                  keggCompMZ = chemCompMZ_unique_formulas, 
-                  otherdbs = FALSE, otherinfo = FALSE, num_nodes = num_nodes)
-                
-                stopCluster(cl)
-                
-                # print(format(object.size(l2),unit='auto'))
-                # save(l2,file='l2.Rda')
-                
-                rm(chemCompMZ)
-                levelB_res <- {
-                }
-                for (j in 1:length(l2)) {
-                  if (length(l2[[j]]) > 1) {
-                    levelB_res <- rbind(levelB_res, l2[[j]])
-                  }
-                }
-                
-                
-                rm(l2)
-                
-                if (nrow(levelB_res) < 1) {
-                  stop("No matches found.")
-                }
-                
-                MatchCategory = rep("Multiple", dim(levelB_res)[1])
-                
-                
-                
-                levelB_res$mz <- as.numeric(as.character(levelB_res$mz))
-                
-                levelB_res$time <- as.numeric(as.character(levelB_res$time))
-                
-                levelB_res <- as.data.frame(levelB_res)
-                
-                levelB_res <- cbind(levelB_res, MatchCategory)
-                
-                
-                
-                print("DB matches")
-                levelB_res <- unique(levelB_res)
-                print(dim(levelB_res))
-                
-                
-                
-                uniq_formula <- as.character(unique(levelB_res$Formula))
-                
-                bad_formula <- which(is.na(uniq_formula) == 
-                  TRUE)
-                if (length(bad_formula) > 0) {
-                  uniq_formula <- uniq_formula[-c(bad_formula)]
-                }
-                
-                cl <- makeSOCKcluster(num_nodes)
-                
-                
-                clusterExport(cl, "check_golden_rules")
-                clusterExport(cl, "check_element")
-                
-                
-                
-                levelB_res_check <- parLapply(cl, 1:length(uniq_formula), 
-                  function(j, uniq_formula, NOPS_check) {
-                    
-                    curformula <- as.character(uniq_formula[j])
-                    return(check_golden_rules(curformula, 
-                      NOPS_check = NOPS_check))
-                    
+                    return(check_golden_rules(curformula, NOPS_check = NOPS_check))
                   }, uniq_formula = uniq_formula, NOPS_check = NOPS_check)
-                stopCluster(cl)
                 
+  
+    stopCluster(cl)
+    
+    #convert list to data frame
+    levelB_res_check2 <- ldply(levelB_res_check, rbind)
                 
-                levelB_res_check2 <- ldply(levelB_res_check, 
-                  rbind)
+    #keep only those hits that had valid molecular formulae based on golden rules and element check
+    levelB_res_check3 <- levelB_res_check2[which(levelB_res_check2$bool_check == 1), ]
                 
-                levelB_res_check3 <- levelB_res_check2[which(levelB_res_check2[, 
-                  2] == 1), ]
+    #retaim those hits with valid formulae
+    levelB_res <- levelB_res[which(levelB_res$Formula %in% as.character(levelB_res_check3$curformula)),]
+    
+    #
+    water_adducts <- c("M+H-H2O", "M+H-2H2O", "M-H2O-H")
+    water_adduct_ind <- which(levelB_res$Adduct %in% water_adducts)
                 
-                
-                levelB_res <- levelB_res[which(levelB_res$Formula %in% 
-                  as.character(levelB_res_check3[, 1])), 
-                  ]
-                
-                water_adducts <- c("M+H-H2O", "M+H-2H2O", 
-                  "M-H2O-H")
-                
-                water_adduct_ind <- which(levelB_res$Adduct %in% 
-                  water_adducts)
-                
-                cl <- makeSOCKcluster(num_nodes)
-                
-                
-                clusterExport(cl, "check_element")
-                
-                
-                
-                if (length(water_adduct_ind) > 0) {
-                  levelB_res2 <- levelB_res[c(water_adduct_ind), 
-                    ]
-                  
-                  levelB_res <- levelB_res[-c(water_adduct_ind), 
-                    ]
-                  
-                  sind1 <- seq(1:dim(levelB_res2)[1])
-                  
-                  levelB_res_check3 <- parLapply(cl, sind1, 
-                    function(j) {
-                      
-                      adduct <- as.character(levelB_res2$Adduct[j])
-                      curformula <- as.character(levelB_res2$Formula[j])
-                      
-                      numoxygens <- check_element(curformula, 
-                        "O")
-                      
-                      if (numoxygens > 0) {
-                        bool_check <- 1
-                      } else {
-                        bool_check <- 0
-                      }
-                      
-                      res <- cbind(curformula, bool_check)
-                      res <- as.data.frame(res)
-                      return(res)
-                      
-                      
-                    })
-                  
-                  levelB_res_check4 <- ldply(levelB_res_check3, 
-                    rbind)
-                  
-                  valid_form <- {
-                  }
-                  
-                  if (length(which(levelB_res_check4[, 2] == 
-                    1)) > 0) {
-                    levelB_res_check4 <- levelB_res_check4[which(levelB_res_check4[, 
-                      2] == 1), ]
-                    
-                    
-                    valid_form <- which(levelB_res2$Formula %in% 
-                      as.character(levelB_res_check4[, 1]))
-                  }
-                  if (length(valid_form) > 0) {
-                    levelB_res2 <- levelB_res2[valid_form, 
-                      ]
-                    levelB_res <- rbind(levelB_res, levelB_res2)
-                  }
+    cl <- makeSOCKcluster(num_nodes)
+    clusterExport(cl, "check_element")
+    
+    if (length(water_adduct_ind) > 0) {
+      levelB_res2 <- levelB_res[c(water_adduct_ind),]
+      levelB_res <- levelB_res[-c(water_adduct_ind),]
+      sind1 <- seq(1:dim(levelB_res2)[1])
+      
+      levelB_res_check3 <- parLapply(cl, sind1, function(j) {
+          
+        adduct <- as.character(levelB_res2$Adduct[j])
+        curformula <- as.character(levelB_res2$Formula[j])
+        numoxygens <- check_element(curformula, "O")
+          
+        if (numoxygens > 0) {
+          bool_check <- 1
+        } else {
+          bool_check <- 0
+        }
+          
+        res <- cbind(curformula, bool_check)
+        res <- as.data.frame(res)
+        return(res)
+      
+      })
+      
+      levelB_res_check4 <- ldply(levelB_res_check3,rbind)
+      
+      valid_form <- {
+      }
+      
+      if (length(which(levelB_res_check4[, 2] == 
+        1)) > 0) {
+        levelB_res_check4 <- levelB_res_check4[which(levelB_res_check4[, 
+          2] == 1), ]
+        
+        
+        valid_form <- which(levelB_res2$Formula %in% 
+          as.character(levelB_res_check4[, 1]))
+      }
+      if (length(valid_form) > 0) {
+        levelB_res2 <- levelB_res2[valid_form, 
+          ]
+        levelB_res <- rbind(levelB_res, levelB_res2)
+      }
                   
                 }
                 # levelB_res<-levelB_res[,-c(1)]
