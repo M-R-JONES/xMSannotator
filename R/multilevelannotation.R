@@ -17,6 +17,8 @@
 #' from the same parent metabolite. e.g.: 10
 #' @param cormethod Method for correlation. e.g.: "pearson" or "spearman". The
 #' "pearson" implementation is computationally faster.
+#' @param clustermethod Method for clustering of features across samples. Valid
+#' options are 'WGCNA' (default), 'hc' (hierarchical clustering) and 'graph'.
 #' @param num_nodes Number of computing cores to be used for parallel
 #' processing. e.g.:2
 #' @param queryadductlist Adduct list to be used for database matching.  e.g.
@@ -87,8 +89,6 @@
 #' are also assigned to the same module. "p": boosts the scores if there are
 #' other metabolites from the same pathway without accounting for module
 #' membership.
-#' @param missing.permute Number of permutations performed during missing
-#' values replacement procedure.
 #' @return The function generates output at each stage: Stage 1 includes
 #' modules and retention time based clustering of features without any
 #' annotation Stage 2 includes modules and retention time based clustering of
@@ -128,11 +128,11 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   
   #temporary work around to having to load all parameters one by one.
   vars = list( max.mz.diff = 10, 
-               max.rt.diff = 10, cormethod = "pearson", num_nodes = 2, 
+               max.rt.diff = 10, cormethod = "pearson", clustmethod == "WGCNA", num_nodes = 2, 
                queryadductlist = c("all"), gradienttype = "Acetonitrile", 
                mode = "pos", outloc = 'temp/outputs/', db_name = "Custom", adduct_weights = NA, 
                num_sets = 3000, allsteps = TRUE, corthresh = 0.7, NOPS_check = TRUE, 
-               customIDs = NA, missing.value = 'permute_uniform', missing.permute = 100, deepsplit = 2, networktype = "unsigned", 
+               customIDs = NA, missing.value = 'mean', deepsplit = 2, networktype = "unsigned", 
                minclustsize = 10, module.merge.dissimilarity = 0.2, 
                filter.by = c("M+H"), redundancy_check = TRUE, min_ions_perchem = 1, 
                biofluid.location = NA, origin = NA, status = NA, boostIDs = NA, 
@@ -149,6 +149,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   #load the adducts table
   setwd('~')
   load(paste(getwd(), 'Git/xMSannotator/data/adducts_enviPat.rda', sep='/'))
+  load(paste(getwd(), '1_cyano_peps/6_Informatics/Git_xMSannotator/xMSannotator/data/adducts_enviPat.rda', sep='/'))
   #data(adducts_enviPat) #this should be used in final script
   
   ###### MOCK STRUCTURE OF TABLE ####
@@ -229,9 +230,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   # }
   #
   # adduct_table <- unique(adduct_table)
-    
-  
-    
+
   #create a subset of valid adducts to consider
   if (queryadductlist == "all" & mode == "pos") {
       adduct_names <- adduct_table$Adduct[(adduct_table$Type == "S" & adduct_table$Mode == "positive") | 
@@ -254,7 +253,9 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   #set up objects for processing
   res_list <- list()
   db_name_list = db_name
-  outloc_allres <- outloc
+  
+  #No value in creating a second object with the same string
+  #outloc_allres <- outloc
     
   #check whether results from step1 of the processing pipeline have already been generated
   l1 <- list.files(outloc_allres)
@@ -267,474 +268,273 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         
     check_levelA <- which(l1 == "xMSannotator_levelA_modules.Rda")
           
-    if (is.na(missing.value) == FALSE) {
+    if (length(check_levelA) < 1) {
+      
+      ### PRE-PROCESS THE DATA MATRIX TO ENABLE CLUSTERING OF FEATURES
+      
+      #replace missing values (valid options for missing value replacement: 'NA' and 'mean')
+      #strongly encourage users to use alternative approaches based on robust multivariate imputation
+      
+      if (is.na(missing.value) == FALSE) {
+        
+        ## when 'missing.value' is set to NA, replace all missing values with NA
+        # causes clustering to fail when too many missing values occur in the matrix
+        dataA <- replace(as.matrix(dataA), which(dataA == missing.value), NA)
+        dataA <- as.data.frame(dataA)
+        
+      } else if(missing.value == 'mean'){
+        
+        #for each feature, set missing value to mean of all non-missing values
+        dataA = adply(dataA, 1, function(row){
+          
+          intens = row[,-c(1:2)]
+          
+          #only consider rows where > minimum number of values have been recorded
+          if(length(which(!is.na(intens)==T)) > 0){
             
-      ## when 'missing.value' is set to NA, replace all missing values with NA
-      # causes clustering to fail when too many missing values occur in the matrix
-      dataA <- replace(as.matrix(dataA), which(dataA == missing.value), NA)
-      dataA <- as.data.frame(dataA)
-      
-    } else if(missing.value == 'permute_uniform'){
-      
-      ##preferred approach replaces missing values with values derived from a uniform distribution between -1 and +1
-      ##replacement from uniform distribution is permuted multiple times and the average calculated 
-      capture = list()
-      for(i in 1:missing.permute){
-        dataA_fill = dataA[,-c(1,2)]
-        while(i < missing.permute){
-          dataA_fill[is.na(dataA_fill)] = runif(n = length(which(is.na(dataA_fill) == TRUE)), -1, 1) 
-          capture[[i]] = dataA_fill
-          i = i + 1
-        }
+            #calculate row mean, excluding missing values
+            m = rowMeans(intens, na.rm = TRUE)
+            #replace all missing values (indicated by NA) with the mean value 'm'
+            intens[is.na(intens)] = m
+            #return intens object
+            return(intens)    
+          }
+        })
       }
       
-      #export matrices from list and convert to array of dimensions (#rows, #cols, #matrices)
-      arr <- array(unlist(capture), dim = c(dim(capture[[1]]),length(capture)))
+      #create a series of unique mzid strings
+      mzid <- paste(dataA$mz, dataA$time, sep = "_")
       
-      #calculate 'average' correlation coefficient (for values that were not NA earlier, this will remain unchanged)
-      result = rowMeans(arr, dim = 2) 
-      
-      result = cbind(dataA[,c(1:2)], result)
-      colnames(result) = colnames(dataA)
-      dataA = result
-      
-      rm('result')
-      rm('capture')
-      
-    }
-    
-    #create a series of unique mzid strings
-    mzid <- paste(dataA$mz, dataA$time, sep = "_")
-    
-    #remove rows with identical mz and retention time pair (rounding might cause inaccuracy here)
-    if (length(which(duplicated(mzid) == TRUE)) > 0) {
+      #remove rows with identical mz and retention time pairs (extent of rounding might cause inaccuracy here)
+      if (length(which(duplicated(mzid) == TRUE)) > 0) {
         dataA <- dataA[-which(duplicated(mzid) == TRUE), ]
-    }
+      }
       
-      colnames(result) <- colnames(dataA_fill) #assign column and row names to the global correction matrix
-      rownames(result) <- mzid
+      #generate string comprising mz_retention time        
+      mzid <- paste(dataA$mz, dataA$time, sep = "_")
       
-      dataA = result
-      rm(result)
-      rm(dataA_fill)
-      rm(capture)
-    }
+      #perform fast calculation of the correlation coefficients between all features
+      system.time(global_cor <- WGCNA::cor(t(dataA[,-c(1:2)]), nThreads = num_nodes, method = cormethod, use = "p"))
+      
+      #round correlation coefficients to 2 decimal places
+      global_cor <- round(global_cor, 2)
+      
+      #insert feature details (mz_rt) for each row and column of the correlation matrix.
+      colnames(global_cor) <- mzid
+      rownames(global_cor) <- mzid
+      
+      #set the working directory to the output directory and save the correlation matrix
+      setwd(outloc_allres)
+      setwd(outloc)
+      
+      save(global_cor, file = "global_cor.Rda")
+      
+      mycl_metabs = NA
+      
+      #THIS FAILS IF MISSING VALUES ARE FOUND, HENCE THE OPTION FOR FILLING WITH 'MEAN' WAS ADDED ABOVE
+      
+      ######## IMPORTANT: changed distance metrix from (1-global_cor) to (1 - abs(global_cor))
+      #the original approach used 1 - global_cor as the distance. Surely for negative correlations we get the wrong distance
+      #e.g. correlation coefficient of -0.3 becomes: 1 - (-0.3) = 1.3, implying an impossibly good distance.
+      #hr = flashClust(as.dist(1 - global_cor), method = "complete")
+      hr = flashClust(as.dist(1 - abs(global_cor)), method = "complete") 
+      
+      #as above, changed the distance matrix to use 1 minus the absolute correlation coefficient
+      dissTOMCormat <- (1 - abs(global_cor)) ######## IMPORTANT: changed distance metrix from (1-global_cor) to (1 - abs(global_cor))
+      
+      a1 <- apply(global_cor, 1, function(x) {
+        length(which(x > corthresh))
+      })
+      
+      fname_c <- paste("NumberOfCorrelationsPerFeature_cor", corthresh, ".csv", sep = "")
+      
+      write.csv(a1, file = fname_c)
+      rm(global_cor)
+      
+      # dynamically cut the dendrogram generated during clustering, using the distM matrix to define closeness of features
+      mycl_metabs <- cutreeDynamic(hr, distM = dissTOMCormat, 
+                                   deepSplit = 1, minClusterSize = minclustsize, 
+                                   pamRespectsDendro = FALSE, pamStage = TRUE, 
+                                   verbose = 0)
+      
+      if (clustmethod == "WGCNA") {
+            
+        #####REMOVE DURING CLEAN UP!!!!
+        #functions.dir = '\\\\eawag\\userdata\\jonesmar\\My Documents\\1_cyano_peps\\6_Informatics\\Git_xMSannotator\\xMSannotator\\R\\'
+        #temp = list.files(functions.dir, pattern = '.R')
+        #temp =temp[-which(temp=='multilevelannotation.R')]
+        #temp =temp[-which(temp=='multilevelannotation_MJ.R')]
+        
+        #lapply(temp, function(x, path){
+        #  source(paste(path, x, sep =''))
+        #}, path = functions.dir )
+            
+        levelA_res <- get_peak_blocks_modulesvhclust(dataA = dataA, 
+          simmat = NA, adjacencyfromsimilarity = FALSE, 
+          time_step = time_step, max.rt.diff = max_diff_rt, 
+          outloc, column.rm.index = NA, cor.thresh = NA, 
+          deepsplit = deepsplit, minclustsize = minclustsize, 
+          cutheight = cutheight, cormethod = cormethod, 
+          networktype = networktype, num_nodes = num_nodes, 
+          step1log2scale = step1log2scale, mycl_metabs = mycl_metabs)
+        
+        setwd(outloc)
+        levelA_res <- levelA_res[, -c(1:4)]
+        save(levelA_res, file = "xMSannotator_levelA_modules.Rda")
+
+      } else if (clustmethod == "graph") {
+        
+        levelA_res <- get_peak_blocks_graph(dataA, 
+                                            simmat = global_cor, adjacencyfromsimilarity = TRUE, 
+                                            time_step = 3, max.rt.diff = max_diff_rt, 
+                                            outloc, column.rm.index = NA, cor.thresh = NA, 
+                                            cormethod = cormethod, networktype = networktype, 
+                                            num_nodes = num_nodes)
+                    
+      } else if (clustmethod == "hc") {
+                
+        levelA_res <- get_peak_blocks_hclust(dataA, 
+                                             time_step = time_step, max.rt.diff = max_diff_rt, 
+                                             outloc, column.rm.index = NA, cor.thresh = NA, 
+                                             deepsplit = deepsplit, minclustsize = minclustsize, 
+                                             cutheight = cutheight, cormethod = cormethod)
+      } else {
+        
+        print('Clustmethod must be set to one of: "HMDB", "KEGG", "Custom"')
+        
+      }
+      
+      setwd(outloc)
+      write.csv(levelA_res, file = "Stage1.csv", 
+                row.names = FALSE)
+      
+    } else {
     
-    # dataA<-dataA[order(dataA$mz,dataA$time),]
-            
-    system.time(global_cor <- WGCNA::cor(t(dataA[,-c(1:2)]), nThreads = num_nodes, method = cormethod, use = "p"))
-            
-    global_cor <- round(global_cor, 2)
-            
-    dataA <- unique(dataA)
-    setwd(outloc_allres)
-            
-    mzid <- paste(dataA$mz, dataA$time, sep = "_")
-    colnames(global_cor) <- mzid
-    rownames(global_cor) <- mzid
-            
-            save(global_cor, file = "global_cor.Rda")
-            
-            mycl_metabs = NA
-            
-            
-            hr = flashClust(as.dist(1 - global_cor), method = "complete")
-            dissTOMCormat <- (1 - global_cor)
-            
-            a1 <- apply(global_cor, 1, function(x) {
-                length(which(x > corthresh))
-            })
-            
-            fname_c <- paste("NumberOfCorrelationsPerFeature_cor", 
-                corthresh, ".csv", sep = "")
-            
-            write.csv(a1, file = fname_c)
-            
-            rm(global_cor)
-            
-            # using dynamic
-            mycl_metabs <- cutreeDynamic(hr, distM = dissTOMCormat, 
-                deepSplit = 1, minClusterSize = minclustsize, 
-                pamRespectsDendro = FALSE, pamStage = TRUE, 
-                verbose = 0)
-            
-            
-            
-            # mycl_metabs <-cutree(hr, h=max(hr$height)/2)
-            # save(mycl_metabs,file='mycl_metabs.Rda')
-            
-            clustmethod = "WGCNA"
-            if (length(check_levelA) < 1) {
+      #import existing results file from outloc
+      setwd(outloc)
+      load("xMSannotator_levelA_modules.Rda")
+  
+    }
+  
+    setwd(outloc)
+    
+    #reorder levelA_res data frame based on mass-to-charge and then on retention time of features
+    levelA_res <- levelA_res[order(levelA_res$mz,levelA_res$time), ]
+    levelA_res <- levelA_res[, c(1:3)]
+    
+    #calculate average intensity of each feature in the dataA data frame
+    dataA <- dataA[order(dataA$mz, dataA$time), ]
+    mean_int_vec <- apply(dataA[, -c(1:2)], 1, function(x) {mean(x, na.rm = TRUE)})
+    
+    #keep only the mz and retention of each feature
+    dataA <- dataA[, c(1:2)]
+
+    #begin suspect screening against the database defined by db_name    
+    if (db_name == "HMDB") {
+        
+      data(hmdbAllinf)
+      
+      hmdbAllinf$Name <- gsub(hmdbAllinf$Name, pattern = "[\\\"']", replacement = "")
+      hmdbAllinfv3.6 = hmdbAllinf
+      
+      #clean up
+      rm(hmdbAllinf)
+      rm(hmdbAllinf, envir = .GlobalEnv)
+      
+      suppressWarnings(if (is.na(customIDs) == TRUE) {
+        
+        customIDs <- hmdbAllinfv3.6[, c(1, 20)]
+        
+        #extract information for location or set to ''
+        if (is.na(biofluid.location) == FALSE){
+          gres_location <- gregexpr(hmdbAllinfv3.6$BioFluidLocation, pattern = biofluid.location, ignore.case = TRUE)
+          gres_location <- which(gres_location == 1)
+        } else{
+          gres_location <- ''
+        }
+        
+        #extract information for origin or set to ''
+        if (is.na(origin) == FALSE){
+          gres_origin <- gregexpr(hmdbAllinfv3.6$Origin, pattern = origin, ignore.case = TRUE)
+          gres_origin <- which(gres_origin == 1)
+        }else{
+          gres_origin <- ''
+        }
+        
+        #extract HMDB status
+        if (is.na(status) == FALSE) {
+          gres_status <- gregexpr(hmdbAllinfv3.6$HMDBStatus, pattern = status, ignore.case = TRUE)
+          gres_status <- which(gres_status == 1)
+        }else{
+          gres_status = ''
+        }
+        
+        #generate a list for HMDB location, origin and status
+        gres = list('gres_loc' = gres_location, #e.g. gres_location = c(1,20,10,23)
+                    'gres_orig' = gres_origin, #e.g. gres_orig = c(20,40,60,80,100)
+                    'gres_status' = gres_status) #e.g. gres_status = ''
+        
+        #empty list for capturing only the HMDB status, location and origin lists that != ''
+        gres_merge = list()
+        #remove lists == ''
+        for(i in 1:length(gres)){
+          if(gres[[i]] != ""){
+            nm = names(gres)[i]
+            gres_merge[[nm]] = gres[[i]]
+          }
+        }
+        
+        #if intersect is true, get the common indices for HMDB compounds from the origin, location and status list
+        if(HMDBselect == 'intersect'){
+          gres = Reduce(intersect, gres_merge)
+        }else{
+          gres = unique(unlist(gres_merge)) #otherwise, get all unique HMDB compounds
+        }
+        
+        #keep found compounds
+        if(!is.null(gres)){
+          customIDs <- hmdbAllinfv3.6[gres, c(1, 20)]
+        }
+      
+      })
                 
-                if (clustmethod == "WGCNA") {
+      rm(hmdbAllinfv3.6, envir = .GlobalEnv)
+      data(hmdbCompMZ)
+      
+      hmdbCompMZ$mz <- round(as.numeric(as.character(hmdbCompMZ$mz)), 5)
+      
+      hmdbCompMZ$Name <- gsub(hmdbCompMZ$Name, pattern = "[\\\"']", replacement = "")
+      
+      
+      suppressWarnings(if (is.na(customIDs) == FALSE) {
+  
+        customIDs <- unique(customIDs)
+        hmdbCompMZ <- hmdbCompMZ[which(hmdbCompMZ$HMDBID %in% customIDs[, 1]), ]
+        hmdbCompMZ <- hmdbCompMZ[which(hmdbCompMZ$Adduct %in% adduct_names), ]
+        
+      })
+    
+      hmdbCompMZ <- hmdbCompMZ[which(hmdbCompMZ$Adduct %in% adduct_names), ]
                   
+      chemCompMZ <- hmdbCompMZ
+      
+      print("Dimension of precomputed HMDB m/z database")
+      print(dim(chemCompMZ))
                   
-                  levelA_res <- get_peak_blocks_modulesvhclust(dataA = dataA, 
-                    simmat = NA, adjacencyfromsimilarity = FALSE, 
-                    time_step = time_step, max.rt.diff = max_diff_rt, 
-                    outloc, column.rm.index = NA, cor.thresh = NA, 
-                    deepsplit = deepsplit, minclustsize = minclustsize, 
-                    cutheight = cutheight, cormethod = cormethod, 
-                    networktype = networktype, num_nodes = num_nodes, 
-                    step1log2scale = step1log2scale, mycl_metabs = mycl_metabs)
+      hmdbCompMZ <- 1
+      hmdbAllinf <- 1
+      
+      try(rm(hmdbCompMZ), silent = TRUE)
+      try(rm(hmdbCompMZ, envir = .GlobalEnv), silent = TRUE)
+      try(rm(hmdbAllinf, envir = .GlobalEnv), silent = TRUE)
+    
+    } else if (db_name == "KEGG") {
+
+      data(keggCompMZ)
                   
+      keggCompMZ$mz <- round(as.numeric(as.character(keggCompMZ$mz)), 5)
                   
-                  setwd(outloc_allres)
-                  levelA_res <- levelA_res[, -c(1:4)]
-                  save(levelA_res, file = "xMSannotator_levelA_modules.Rda")
-                  
-                  
-                  
-                } else {
-                  
-                  if (clustmethod == "graph") {
-                    
-                    levelA_res <- get_peak_blocks_graph(dataA, 
-                      simmat = global_cor, adjacencyfromsimilarity = TRUE, 
-                      time_step = 3, max.rt.diff = max_diff_rt, 
-                      outloc, column.rm.index = NA, cor.thresh = NA, 
-                      cormethod = cormethod, networktype = networktype, 
-                      num_nodes = num_nodes)
-                    
-                  } else {
-                    
-                    
-                    if (clustmethod == "hclust") {
-                      levelA_res <- get_peak_blocks_hclust(dataA, 
-                        time_step = time_step, max.rt.diff = max_diff_rt, 
-                        outloc, column.rm.index = NA, cor.thresh = NA, 
-                        deepsplit = deepsplit, minclustsize = minclustsize, 
-                        cutheight = cutheight, cormethod = cormethod)
-                    }
-                    
-                  }
-                  
-                }
-                
-                setwd(outloc_allres)
-                
-                
-                write.csv(levelA_res, file = "Stage1.csv", 
-                  row.names = FALSE)
-                # write.table(levelA_res,file='Stage1.txt',sep='\t',row.names=FALSE)
-                
-            } else {
-                setwd(outloc_allres)
-                load("xMSannotator_levelA_modules.Rda")
-                
-                # alldegrees<-levelA_res[,c(1:4)]
-                # levelA_res<-levelA_res[,-c(1:4)]
-                
-                
-                
-            }
-            
-            setwd(outloc)
-            
-            levelA_res <- levelA_res[order(levelA_res$mz, 
-                levelA_res$time), ]
-            
-            levelA_res <- levelA_res[, c(1:3)]
-            
-            dataA <- dataA[order(dataA$mz, dataA$time), ]
-            
-            mean_int_vec <- apply(dataA[, -c(1:2)], 1, function(x) {
-                mean(x, na.rm = TRUE)
-            })
-            
-            
-            
-            dataA <- dataA[, c(1:2)]
-            
-            
-            if (queryadductlist == "all" & mode == "pos") {
-                
-                adduct_names <- adduct_table$Adduct[(adduct_table$Type == 
-                  "S" & adduct_table$Mode == "positive") | 
-                  (adduct_table$Type == gradienttype & adduct_table$Mode == 
-                    "positive")]
-                
-                adduct_table <- adduct_table[which(adduct_table$Adduct %in% 
-                  adduct_names), ]
-                
-            } else {
-                if (queryadductlist == "all" & mode == "neg") {
-                  
-                  adduct_names <- adduct_table$Adduct[(adduct_table$Type == 
-                    "S" & adduct_table$Mode == "negative") | 
-                    (adduct_table$Type == gradienttype & 
-                      adduct_table$Mode == "negative")]
-                  adduct_table <- adduct_table[which(adduct_table$Adduct %in% 
-                    adduct_names), ]
-                } else {
-                  
-                  adduct_names <- adduct_table$Adduct[which(adduct_table$Adduct %in% 
-                    queryadductlist)]
-                  
-                  adduct_table <- adduct_table[which(adduct_table$Adduct %in% 
-                    adduct_names), ]
-                  
-                }
-            }
-            
-            adduct_names <- unique(adduct_names)
-            
-            
-            
-            if (db_name == "HMDB") {
-                
-                
-                
-                data(hmdbAllinf)
-                
-                hmdbAllinf$Name <- gsub(hmdbAllinf$Name, 
-                  pattern = "[\\\"']", replacement = "")
-                
-                
-                hmdbAllinfv3.6 = hmdbAllinf
-                
-                
-                rm(hmdbAllinf)
-                rm(hmdbAllinf, envir = .GlobalEnv)
-                
-                
-                
-                
-                suppressWarnings(if (is.na(customIDs) == 
-                  TRUE) {
-                  
-                  customIDs <- hmdbAllinfv3.6[, c(1, 20)]
-                  
-                  
-                  
-                  
-                  if (is.na(biofluid.location) == FALSE & 
-                    is.na(origin) == TRUE) {
-                    
-                    
-                    gres <- gregexpr(hmdbAllinfv3.6$BioFluidLocation, 
-                      pattern = biofluid.location, ignore.case = TRUE)
-                    
-                    if (is.na(status) == FALSE) {
-                      
-                      gres3 <- gregexpr(hmdbAllinfv3.6$HMDBStatus, 
-                        pattern = status, ignore.case = TRUE)
-                      
-                      gres3_good <- which(gres3 == 1)
-                      gres_good <- which(gres == 1)
-                      if (HMDBselect == "intersect") {
-                        gres <- intersect(gres_good, gres3_good)
-                      } else {
-                        
-                        gres <- c(gres_good, gres3_good)
-                        gres <- unique(gres)
-                        
-                      }
-                      
-                      
-                    } else {
-                      
-                      gres <- which(gres == 1)
-                      
-                    }
-                    
-                    
-                    customIDs <- hmdbAllinfv3.6[gres, c(1, 
-                      20)]
-                    
-                    rm(hmdbAllinfv3.6)
-                    
-                    
-                  } else {
-                    
-                    
-                    if (is.na(biofluid.location) == FALSE & 
-                      is.na(origin) == FALSE) {
-                      
-                      
-                      gres <- gregexpr(hmdbAllinfv3.6$BioFluidLocation, 
-                        pattern = biofluid.location, ignore.case = TRUE)
-                      
-                      gres2 <- gregexpr(hmdbAllinfv3.6$Origin, 
-                        pattern = origin, ignore.case = TRUE)
-                      
-                      gres_good <- which(gres == 1)
-                      gres2_good <- which(gres2 == 1)
-                      
-                      
-                      
-                      
-                      if (is.na(status) == FALSE) {
-                        
-                        gres3 <- gregexpr(hmdbAllinfv3.6$HMDBStatus, 
-                          pattern = status, ignore.case = TRUE)
-                        
-                        gres3_good <- which(gres3 == 1)
-                        
-                        
-                        if (HMDBselect == "intersect") {
-                          gres <- intersect(gres_good, gres2_good, 
-                            gres3_good)
-                        } else {
-                          
-                          gres <- c(gres_good, gres2_good, 
-                            gres3_good)
-                          gres <- unique(gres)
-                          
-                        }
-                      } else {
-                        
-                        
-                        if (HMDBselect == "intersect") {
-                          gres <- intersect(gres_good, gres2_good)
-                        } else {
-                          
-                          gres <- c(gres_good, gres2_good)
-                          gres <- unique(gres)
-                          
-                        }
-                      }
-                      
-                      
-                      
-                      
-                      
-                      customIDs <- hmdbAllinfv3.6[gres, c(1, 
-                        20)]
-                      
-                      
-                      
-                    } else {
-                      
-                      
-                      if (is.na(biofluid.location) == TRUE & 
-                        is.na(origin) == FALSE) {
-                        
-                        
-                        gres <- gregexpr(hmdbAllinfv3.6$Origin, 
-                          pattern = origin, ignore.case = TRUE)
-                        
-                        
-                        if (is.na(status) == FALSE) {
-                          
-                          gres3 <- gregexpr(hmdbAllinfv3.6$HMDBStatus, 
-                            pattern = status, ignore.case = TRUE)
-                          
-                          gres3_good <- which(gres3 == 1)
-                          gres_good <- which(gres == 1)
-                          
-                          if (HMDBselect == "intersect") {
-                            gres <- intersect(gres_good, 
-                              gres3_good)
-                          } else {
-                            
-                            gres <- c(gres_good, gres3_good)
-                            gres <- unique(gres)
-                            
-                          }
-                        } else {
-                          
-                          gres <- which(gres == 1)
-                          
-                        }
-                        
-                        
-                        
-                        customIDs <- hmdbAllinfv3.6[gres, 
-                          c(1, 20)]
-                        
-                      } else {
-                        
-                        
-                        if (is.na(status) == FALSE) {
-                          
-                          
-                          gres3 <- gregexpr(hmdbAllinfv3.6$HMDBStatus, 
-                            pattern = status, ignore.case = TRUE)
-                          
-                          gres3_good <- which(gres3 == 1)
-                          
-                          gres <- gres3_good
-                          
-                          
-                          
-                          
-                          customIDs <- hmdbAllinfv3.6[gres, 
-                            c(1, 20)]
-                          
-                        } else {
-                          
-                          
-                          customIDs <- hmdbAllinfv3.6[, c(1, 
-                            20)]
-                        }
-                        
-                        
-                      }
-                      
-                      
-                    }
-                  }
-                  
-                })
-                
-                rm(hmdbAllinfv3.6, envir = .GlobalEnv)
-                data(hmdbCompMZ)
-                
-                hmdbCompMZ$mz <- round(as.numeric(as.character(hmdbCompMZ$mz)), 
-                  5)
-                
-                hmdbCompMZ$Name <- gsub(hmdbCompMZ$Name, 
-                  pattern = "[\\\"']", replacement = "")
-                
-                # hmdbbad<-c('HMDB29244','HMDB29245','HMDB29246')
-                
-                # if(length(which(hmdbCompMZ$HMDBID%in%hmdbbad))>0){
-                # hmdbCompMZ<-hmdbCompMZ[-which(hmdbCompMZ$HMDBID%in%hmdbbad),]
-                
-                # }
-                
-                suppressWarnings(if (is.na(customIDs) == 
-                  FALSE) {
-                  
-                  customIDs <- unique(customIDs)
-                  
-                  
-                  hmdbCompMZ <- hmdbCompMZ[which(hmdbCompMZ$HMDBID %in% 
-                    customIDs[, 1]), ]
-                  
-                  hmdbCompMZ <- hmdbCompMZ[which(hmdbCompMZ$Adduct %in% 
-                    adduct_names), ]
-                })
-                
-                hmdbCompMZ <- hmdbCompMZ[which(hmdbCompMZ$Adduct %in% 
-                  adduct_names), ]
-                
-                chemCompMZ <- hmdbCompMZ
-                
-                
-                print("Dimension of precomputed HMDB m/z database")
-                print(dim(chemCompMZ))
-                
-                hmdbCompMZ <- 1
-                hmdbAllinf <- 1
-                try(rm(hmdbCompMZ), silent = TRUE)
-                
-                try(rm(hmdbCompMZ, envir = .GlobalEnv), silent = TRUE)
-                try(rm(hmdbAllinf, envir = .GlobalEnv), silent = TRUE)
-                
-            } else {
-                
-                if (db_name == "KEGG") {
-                  
-                  
-                  data(keggCompMZ)
-                  
-                  keggCompMZ$mz <- round(as.numeric(as.character(keggCompMZ$mz)), 
-                    5)
-                  
-                  keggCompMZ$Name <- gsub(keggCompMZ$Name, 
-                    pattern = "[\\\"']", replacement = "")
+      keggCompMZ$Name <- gsub(keggCompMZ$Name, pattern = "[\\\"']", replacement = "")
                   
                   
                   
@@ -813,80 +613,74 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
                       
                       if (db_name == "Custom") {
                         
-                        data(adduct_table)
-                        
-                        
-                        
+                        data(adducts_enviPat)
+                    
+                        #read in suspect screening database
                         inputmassmat <- customDB
                         
-                        if (length(which(duplicated(inputmassmat[, 
-                          1]) == TRUE)) > 0) {
-                          inputmassmat <- inputmassmat[-which(duplicated(inputmassmat[, 
-                            1]) == TRUE), ]
-                          
+                        # compound ID   |   name            | monoisotopic mass (neutral)   | molecular formula (uncharged) | 
+                        # CID1001       |   Phenethylamine  |   121.089                     | C8H11N                        |
+                        # CID6305       |   Tryptophan      |   204.09                      | C11H12N2O2                    |
+                        # ...           |   ...             |   ...                         | ...                           |
+                        # CID6057       |   tyrosine        |   181.074                     | C9H11NO3                      |
+                        
+                        #remove any duplicate values in the database (based on compound ID value)
+                        if (length(which(duplicated(inputmassmat[,1]) == TRUE)) > 0) {
+                          inputmassmat <- inputmassmat[-which(duplicated(inputmassmat[,1]) == TRUE), ]
                         }
                         
-                        mz_search_list <- {
-                        }
-                        mz_search_list <- lapply(1:dim(inputmassmat)[1], 
-                          function(m) {
+                        mz_search_list <- lapply(1:dim(inputmassmat)[1], function(m) {
+                          
+                          adduct_names <- as.character(adduct_names)
+                          
+                          mz_search_list <- get_mz_by_monoisotopicmass(
                             
-                            # print(head(adduct_table))
-                            adduct_names <- as.character(adduct_names)
-                            # print(adduct_names)
-                            
-                            mz_search_list <- get_mz_by_monoisotopicmass(monoisotopicmass = as.numeric(as.character(inputmassmat[m, 
-                              4])), dbid = inputmassmat[m, 
-                              1], name = as.character(inputmassmat[m, 
-                              2]), formula = as.character(inputmassmat[m, 
-                              3]), queryadductlist = adduct_names, 
-                              adduct_table = adduct_table)
-                            
+                            monoisotopicmass = as.numeric(as.character(inputmassmat[m,4])), 
+                            dbid = inputmassmat[m,1], 
+                            name = as.character(inputmassmat[m,2]), 
+                            formula = as.character(inputmassmat[m,3]), 
+                            queryadductlist = adduct_names, 
+                            adduct_table = adduct_table)
+                          
                             return(mz_search_list)
+                        
                           })
                         
-                        mz_search_list <- ldply(mz_search_list, 
-                          rbind)
+                        mz_search_list <- ldply(mz_search_list,rbind)
                         save(mz_search_list, file = "mz_search_list.Rda")
                         chemCompMZ <- mz_search_list
                         rm(mz_search_list)
                         rm(customDB)
                         rm(customDB, envir = .GlobalEnv)
-                        
-                        
-                        
+
                       } else {
                         
                         stop("db_name should be: KEGG, HMDB, T3DB, LipidMaps, or Custom")
                         
                       }
-                      
-                      
                     }
-                    
-                    
                   }
-                }
             }
-            data(adduct_table)
-            
-            if (is.na(adduct_weights) == TRUE) {
-                data(adduct_weights)
-                adduct_weights1 <- matrix(nrow = 2, ncol = 2, 
-                  0)
-                adduct_weights1[1, ] <- c("M+H", 1)
-                adduct_weights1[2, ] <- c("M-H", 1)
-                adduct_weights <- as.data.frame(adduct_weights1)
-                colnames(adduct_weights) <- c("Adduct", "Weight")
-                adduct_weights <- as.data.frame(adduct_weights)
-                
-            }
-            
-            chemCompMZ$Name <- gsub("([-:();])|[[:punct:]]", 
-                "\\1", chemCompMZ$Name)
-            chemCompMZ$Formula <- gsub("([-:();])|[[:punct:]]", 
-                "\\1", chemCompMZ$Formula)
-            
+
+  data(adduct_table)
+  
+  if (is.na(adduct_weights) == TRUE) {
+      data(adduct_weights)
+      adduct_weights1 <- matrix(nrow = 2, ncol = 2, 
+        0)
+      adduct_weights1[1, ] <- c("M+H", 1)
+      adduct_weights1[2, ] <- c("M-H", 1)
+      adduct_weights <- as.data.frame(adduct_weights1)
+      colnames(adduct_weights) <- c("Adduct", "Weight")
+      adduct_weights <- as.data.frame(adduct_weights)
+      
+  }
+  
+  chemCompMZ$Name <- gsub("([-:();])|[[:punct:]]", 
+      "\\1", chemCompMZ$Name)
+  chemCompMZ$Formula <- gsub("([-:();])|[[:punct:]]", 
+      "\\1", chemCompMZ$Formula)
+  
             
             cnames <- colnames(chemCompMZ)
             
