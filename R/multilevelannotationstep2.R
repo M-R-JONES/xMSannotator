@@ -46,7 +46,7 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
     if(is.na(adduct_weights) == TRUE){
       #treats all adducts equally
       load("adducts_enviPat.rda")
-      adduct_weights = adduct_table$Weight
+      adduct_weights = adduct_table
     }
     
     
