@@ -40,7 +40,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
       #  mchemicaldata<-mchemicaldata[-which(duplicated(mchemicaldata$mz)==TRUE),]
     }
     
-    #simplift the Module_RTclust descriptor (from initial clustering procedure)
+    #simplify the Module_RTclust descriptor (from initial clustering procedure)
     mchemicaldata$Module_RTclust<-gsub(mchemicaldata$Module_RTclust,pattern="_[0-9]*",replacement="")
     mchemicaldata_orig<-mchemicaldata
     
@@ -54,39 +54,43 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
       
     }
     
+    #get all unique features
     mchemicaldata<-unique(mchemicaldata)
     
-    curformula<-as.character(mchemicaldata[,7])
+    #get the formula
+    curformula<-as.character(mchemicaldata$Formula)
     
+    #historical - used only for crude check of elements validity 
     formula_check<-getMolecule(as.character(curformula[1]))
     exp_isp<-which(formula_check$isotopes[[1]][2,]>=0.001)
     abund_ratio_vec<-formula_check$isotopes[[1]][2,exp_isp]
     
+    #check appropriate number of oxygens in formula
     numoxygen<-check_element(curformula,"O")
     
-    water_adducts<-c("M+H-H2O","M+H-2H2O","M-H2O-H")
     
+    water_adducts<-c("M+H-H2O","M+H-2H2O","M-H2O-H")
     water_adduct_ind<-which(mchemicaldata$Adduct%in%water_adducts)
     
+    #historical - I think the calculation is wrong as the elements included in the formula do not include the adduct
+    #if there are no oxygens in the formula, remove associated water adduct assignments
     if(numoxygen<1){
       if(length(water_adduct_ind)>0){
         mchemicaldata<-mchemicaldata[-water_adduct_ind,]
       }
     }
     
-    #water check
+    #for features that fail the oxygen and water adduct evaluations, return terrible score value
     if(nrow(mchemicaldata)<1){
-      
       chemical_score<-(-100)
-      
       return(list("chemical_score"=chemical_score,"filtdata"=mchemicaldata))
-      
     }
     
+    #get set of unique adduct types associated with chemid
     mchemicaldata$Adduct<-as.character(mchemicaldata$Adduct)
-    
     uniq_adducts<-unique(mchemicaldata$Adduct)
     
+    #keep only adducts that were defined as valid adducts in the adduct_weights object
     good_adducts<-uniq_adducts[which(uniq_adducts%in%as.character(adduct_weights$Adduct))]
     
     #from the full list of chemical annotations, extract those corresponding to the set of formulae in this loop
@@ -108,14 +112,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
     
     bool_check<-0
     final_isp_annot_res_all<-mchemicaldata
-    level_module_isop_annot<-as.data.frame(level_module_isop_annot)
     level_module_isop_annot$Module_RTclust<-gsub(level_module_isop_annot$Module_RTclust,pattern="_[0-9]*",replacement="")
-    
-    #for(m in  1:length(mchemicaldata$mz))
-    
-    #adduct_weights_bkup = adduct_weights
-    
-    #adduct_weights = data.frame('Adduct' = adduct_table[,1], 'Weight' = 1)
     
     mchemicaldata_goodadducts_index<-which(mchemicaldata$Adduct%in%as.character(adduct_weights$Adduct))
     final_isp_annot_res_isp<-{}
@@ -162,7 +159,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
           form = enviPat::subform(form, adduct_weights[indx_add_table,]$Merge_sub)
         }
         
-        print(form)
+        print('Sum formula for compound and associated adduct is: ', form, sep = '')
         
         ##########################################################################################
         
@@ -174,16 +171,20 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         
         temp = mol_isos[[1]][,1]
         
-        if(z>1 & adduct_weights[indx_add_table,]$Mode == 'positive'){
-          
-          mol_isos[[1]][,1] = mol_isos[[1]][,1] - (z * 0.00054858)
-          
-        }else if(z>1 & adduct_weights[indx_add_table,]$Mode == 'negative'){
-          
-          mol_isos[[1]][,1] = mol_isos[[1]][,1] + (z * 0.00054858)
-          
-        }
+        ### As the adduct table has factored in the mass of electrons, correction of theoretical mz is not required
         
+        #correct for slight shift in mass of isotope m/z values due to the charge
+        #if(z>0 & adduct_weights[indx_add_table,]$Mode == 'positive'){
+        #  
+        #  mol_isos[[1]][,1] = mol_isos[[1]][,1] - (z * 0.00054858)
+        #  
+        #}else if(z>0 & adduct_weights[indx_add_table,]$Mode == 'negative'){
+        #  
+        #  mol_isos[[1]][,1] = mol_isos[[1]][,1] + (z * 0.00054858)
+        #  
+        #}
+        
+        #keep only isotope peaks, not the monoisotopic peak!
         top_isotopes = mol_isos[[1]][order(mol_isos[[1]][,2], decreasing = T)[1:max_isp+1],] #the +1 is to account for the monoisotopic peak
         
         top_isotopes = data.frame(top_isotopes, check.names = F)
@@ -208,8 +209,25 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         
         query_md<-mchemicaldata$mz[m]-round(mchemicaldata$mz[m])
         query_rt<-mchemicaldata$time[m]
-        query_int<-1*(mchemicaldata$mean_int_vec[m])
         
+        #to account for fact that [M+1] can have a higher intensity than the monoisotopic peak,
+        #first determine if [M+1] expected abundance exceeds the monoisotopic abundance and if so
+        #calculate the ratio between the [M+1] and M+ peak abundances and multiply by the M+ peak intensity
+        #add a further 'cushion' to ensure more-abundant features are collected during the subset procedure
+        
+        max_isotope_abundance = max(top_isotopes$abundance)
+        if(max_isotope_abundance < 100){
+          query_int<-1*(mchemicaldata$AvgIntensity[m])
+        }else{
+          #multiple the compound intensity by the ratio of its intensity to that of its largest isotope
+          ratio = max(top_isotopes$abundance) / mchemicaldata$AvgIntensity[m]
+          query_int = ratio * mchemdata$AvgIntensity[m]
+          #this is a tolerance factor that adds 10% further to the intensity value to ensure largest isotope captured
+          query_int = query int + (0.1 * query_int)
+        }
+        
+        #subset procedure
+        #A VERY IMPORTANT STEP WHERE ALL POSSIBLE ISOTOPE CANDIDATES ARE EXTRACTED FROM THE level_module_isop_annot OBJECT
         put_isp_masses_curmz_data<-level_module_isop_annot[which(abs(level_module_isop_annot$time-query_rt)<max_diff_rt & 
                                                                    abs((level_module_isop_annot$MD)-(query_md))<mass_defect_window & 
                                                                    isp_mat_module_rt_group==module_rt_group & 
@@ -224,24 +242,26 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         put_isp_masses_curmz_data<-put_isp_masses_curmz_data[order(put_isp_masses_curmz_data$mz),]
         
         if(length(put_isp_masses_curmz_data)>0){
-          #int_vec<-apply(put_isp_masses_curmz_data[,-c(1:12)],1,max)
-          int_vec<-put_isp_masses_curmz_data[,c(5)]
-          int_vec<-int_vec/mchemicaldata[m,13] #(max(int_vec+1,na.rm=TRUE))
           
-          curformula<-gsub(curformula,pattern="Sr",replacement="")
-          curformula<-gsub(curformula,pattern="Sn",replacement="")
-          curformula<-gsub(curformula,pattern="Se",replacement="")
-          curformula<-gsub(curformula,pattern="Sc",replacement="")
-          curformula<-gsub(curformula,pattern="Sm",replacement="")
+          #calculate the relative intensities of peaks versus the monoisotopic mass
+          int_vec<-put_isp_masses_curmz_data$AvgIntensity
+          int_vec<-int_vec/mchemicaldata$AvgIntensity[m] 
           
-          if(FALSE){
-            numchlorine<-check_element(curformula,"Cl")
-            numsulphur<-check_element(curformula,"S")
-            numbromine<-check_element(curformula,"Br")
-            max_isp_count<-max(numchlorine,numsulphur,numbromine,max_isp)
-          }
+          ###no idea why these elements are excluded###
+          #curformula<-gsub(curformula,pattern="Sr",replacement="")
+          #curformula<-gsub(curformula,pattern="Sn",replacement="")
+          #curformula<-gsub(curformula,pattern="Se",replacement="")
+          #curformula<-gsub(curformula,pattern="Sc",replacement="")
+          #curformula<-gsub(curformula,pattern="Sm",replacement="")
           
-          max_isp_count<-max(exp_isp)
+          #if(FALSE){
+          #  numchlorine<-check_element(curformula,"Cl")
+          #  numsulphur<-check_element(curformula,"S")
+          #  numbromine<-check_element(curformula,"Br")
+          #  max_isp_count<-max(numchlorine,numsulphur,numbromine,max_isp)
+          #}
+          
+          #max_isp_count<-max(exp_isp)
           
           if(is.na(max_isp_count)==TRUE){
             max_isp_count=1

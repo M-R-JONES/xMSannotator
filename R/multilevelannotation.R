@@ -248,7 +248,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   l1 <- list.files(outloc)
   check_step1 <- which(l1 == "step1_results.Rda")
         
-  if(length(check_level1) < 1){
+  if(length(check_step1) < 1){
     
     print('Checking if level1A results exist')
     
@@ -1259,7 +1259,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     mchemdata$mz <- round(as.numeric(as.character(mchemdata$mz)), 5)
     mchemdata$time <- round(as.numeric(as.character(mchemdata$time)), 1)
     mchemdata$MD <- round(as.numeric(as.character(mchemdata$MD)), 3)
-    mchemdata$mean_int_vec <- round(as.numeric(as.character(mchemdata$mean_int_vec)), 1)
+    mchemdata$AvgIntensity <- round(as.numeric(as.character(mchemdata$AvgIntensity)), 1)
     mchemdata$time.y <- round(as.numeric(as.character(mchemdata$time.y)), 1) #why keep this?
    
     if (max_diff_rt >= 9999) {
@@ -1302,6 +1302,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     
     rm(list = ls())
     load("tempobjects.Rda")
+    load("step1_results.Rda")
     
   } else {
     print("Status 1: Skipping step 1.")

@@ -5,3 +5,4 @@ Change log:
 - updated section involving comparisons to user-defined database - simplified the if/else structure
 - HMDB query section simplified
 - import the customDB as a dataframe without the need for further conversions between character and numeric
+- the water adduct check is wrong as it does not add on / subtract the number of water "adducts" from the formula
