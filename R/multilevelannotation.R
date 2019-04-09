@@ -123,34 +123,12 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     HMDBselect = "union", mass_defect_window = 0.01, mass_defect_mode = "pos", 
     dbAllinf = NA, pathwaycheckmode = "pm") {
   
-  
-  library(WGCNA)
-  
-  #temporary work around to having to load all parameters one by one.
-  vars = list( max.mz.diff = 10, 
-               max.rt.diff = 10, cormethod = "pearson", clustmethod = "WGCNA", num_nodes = 2, 
-               queryadductlist = c("all"), gradienttype = "Acetonitrile", 
-               mode = "pos", outloc = 'temp/outputs/', db_name = "Custom", adduct_weights = NA, 
-               num_sets = 3000, allsteps = TRUE, corthresh = 0.7, NOPS_check = TRUE, 
-               customIDs = NA, missing.value = 'mean', deepsplit = 2, networktype = "unsigned", 
-               minclustsize = 10, module.merge.dissimilarity = 0.2, 
-               filter.by = c("M+H"), redundancy_check = TRUE, min_ions_perchem = 1, 
-               biofluid.location = NA, origin = NA, status = NA, boostIDs = NA, 
-               max_isp = 5, MplusH.abundance.ratio.check = FALSE, customDB = NA, 
-               HMDBselect = "union", mass_defect_window = 0.01, mass_defect_mode = "pos", 
-               dbAllinf = NA, pathwaycheckmode = "pm")
-  
-  for(i in 1:length(vars)) assign(names(vars)[i], vars[[i]])
-  rm(vars)
-  
   options(warn = -1)
   allowWGCNAThreads(nThreads = num_nodes)
-
+  
   #load the adducts table
+  load("adducts_enviPat.rda")
   setwd('~')
-  load(paste(getwd(), 'Git/xMSannotator/data/adducts_enviPat.rda', sep='/'))
-  load(paste(getwd(), '1_cyano_peps/6_Informatics/Git_xMSannotator/xMSannotator/data/adducts_enviPat.rda', sep='/'))
-  #data(adducts_enviPat) #this should be used in final script
   
   ###### MOCK STRUCTURE OF TABLE ####
   # | Adduct     | num_molecules | charge | adductMass |  Mode     | Type | Merge_add | Merge_sub |
@@ -160,8 +138,11 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   
   #define outloc location (output folder path)
   if(outloc == ''){
-    outloc = paste(getwd(), outloc, sep = '')
+    setwd('~')
+    outloc = file.path(getwd(), 'temp/outputs/', sep = '')
+    print(paste('results are saved in: ', outloc, sep = ''))
   }
+  
   #Create the output directory and set as the current working directory
   suppressWarnings(dir.create(outloc))
   setwd(outloc)
@@ -264,24 +245,25 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   #outloc_allres <- outloc
     
   #check whether results from step1 of the processing pipeline have already been generated
-  l1 <- list.files(outloc_allres)
+  l1 <- list.files(outloc)
   check_step1 <- which(l1 == "step1_results.Rda")
         
-        
-  if (length(check_step1) < 1) {
-          
-    print("Status 1: Computing modules using WGCNA")
-        
-    check_levelA <- which(l1 == "xMSannotator_levelA_modules.Rda")
-          
+  if(length(check_level1) < 1){
+    
+    print('Checking if level1A results exist')
+    
+    check_levelA = which(l1 == 'xMSannotator_levelA_modules.Rda')
+    
     if (length(check_levelA) < 1) {
+      
+      print('Level1A result did not exist, therefore computing modules using WGCNA')
       
       ### PRE-PROCESS THE DATA MATRIX TO ENABLE CLUSTERING OF FEATURES
       
       #replace missing values (valid options for missing value replacement: 'NA' and 'mean')
       #strongly encourage users to use alternative approaches based on robust multivariate imputation
       
-      if (is.na(missing.value) == FALSE) {
+      if (is.na(missing.value) == TRUE) {
         
         ## when 'missing.value' is set to NA, replace all missing values with NA
         # causes clustering to fail when too many missing values occur in the matrix
@@ -308,10 +290,10 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         })
       }
       
-      #create a series of unique mzid strings
+      #create a series of unique mzid strings that map directly to the dataA object
       mzid <- paste(dataA$mz, dataA$time, sep = "_")
       
-      #remove rows with identical mz and retention time pairs (extent of rounding might cause inaccuracy here)
+      #remove mzid values if identical mz and retention time pairs exist (extent of rounding might cause inaccuracy here)
       if (length(which(duplicated(mzid) == TRUE)) > 0) {
         dataA <- dataA[-which(duplicated(mzid) == TRUE), ]
       }
@@ -330,7 +312,6 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       rownames(global_cor) <- mzid
       
       #set the working directory to the output directory and save the correlation matrix
-      setwd(outloc_allres)
       setwd(outloc)
       
       save(global_cor, file = "global_cor.Rda")
@@ -387,7 +368,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         setwd(outloc)
         levelA_res <- levelA_res[, -c(1:4)]
         save(levelA_res, file = "xMSannotator_levelA_modules.Rda")
-
+  
       } else if (clustmethod == "graph") {
         
         levelA_res <- get_peak_blocks_graph(dataA, 
@@ -410,18 +391,25 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         
       }
       
-      setwd(outloc)
-      write.csv(levelA_res, file = "Stage1.csv", 
-                row.names = FALSE)
+      #here the row name labels get screwed up by re-ordering during processing
+      #hence, re-assign correct labels!
+      rownames(levelA_res) = paste(levelA_res$mz, levelA_res$time, sep = '_')
+      write.csv(levelA_res, file = "Stage1.csv", row.names = FALSE)
+      
+      print(paste('Saving level1A results to: ', file.path(outloc, 'xMSannotator_levelA_modules.Rda', fsep = ''), sep =''))
+      print(paste('Saving level1A results to: ', file.path(outloc, 'Stage1.csv', fsep = ''), sep =''))
       
     } else {
     
+      print('Level1A results existed - loading from xMSannotator_levelA_modules.Rda')
       #import existing results file from outloc
       setwd(outloc)
       load("xMSannotator_levelA_modules.Rda")
   
     }
   
+    print(paste('Mapping level1A results to database', db_name, sep=' '))
+    
     setwd(outloc)
     
     #reorder levelA_res data frame based on mass-to-charge and then on retention time of features
@@ -430,11 +418,16 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     
     #calculate average intensity of each feature in the dataA data frame
     dataA <- dataA[order(dataA$mz, dataA$time), ]
+    
+    #original storage of mean_int_vec (only way of mapping to mz and retention time was to order by mz then by tr)
     mean_int_vec <- apply(dataA[, -c(1:2)], 1, function(x) {mean(x, na.rm = TRUE)})
+    
+    #new mean_int_vec object that maintained relationship between intensity, mz and time
+    mean_int_vec = data.frame('mean_int_vec' = mean_int_vec, dataA$mz, dataA$time)
     
     #keep only the mz and retention of each feature
     dataA <- dataA[, c(1:2)]
-
+  
     #begin suspect screening against the database defined by db_name    
     if (db_name == "HMDB") {
         
@@ -537,7 +530,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       try(rm(hmdbAllinf, envir = .GlobalEnv), silent = TRUE)
     
     } else if (db_name == "KEGG") {
-
+  
       data(keggCompMZ)
       
       #round all KEGG compound mz values to 5 d.p.            
@@ -612,12 +605,8 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       
     } else if (db_name == "Custom") {
       
-      load("adducts_enviPat.rda")
-      
-      load("customDB.rda")
-      
       #read in suspect screening database
-      #inputmassmat <- customDB
+      customDB = customDB
       
       colnames(customDB)[which(colnames(customDB)=='ID')] = 'CompoundID'
       colnames(customDB)[which(colnames(customDB)=='Name')] = 'Name'
@@ -670,6 +659,8 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       
       #write the suspect screening dataframe to "mz_search_list.rda" object
       save(mz_search_list, file = "mz_search_list.Rda")
+      print(paste('Database successfully transformed in to data frame (obj. mz_search_list). Saving to: ', 
+                  file.path(outloc, 'mz_search_list.Rda', fsep =''), sep = ''))
         
       #define chemCompMZ as the input suspect screening list
       chemCompMZ <- mz_search_list
@@ -678,933 +669,773 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       rm(mz_search_list)
       rm(customDB)
       rm(customDB, envir = .GlobalEnv)
+  
+    } else {
+        
+        stop("db_name should be: KEGG, HMDB, T3DB, LipidMaps, or Custom")
+    }
 
-  } else {
+    #if adduct_weights was not defined when executing function, set [M+/-H] as the only adducts with defined weights
+    if (is.na(adduct_weights) == TRUE) {
+        data(adduct_weights)
+        adduct_weights1 <- matrix(nrow = 2, ncol = 2, 0)
+        adduct_weights1[1, ] <- c("M+H", 1)
+        adduct_weights1[2, ] <- c("M-H", 1)
+        adduct_weights <- as.data.frame(adduct_weights1)
+        colnames(adduct_weights) <- c("Adduct", "Weight")
+        adduct_weights <- as.data.frame(adduct_weights)
+        rm(adduct_weights1)
+    }
+    
+    #fix naming of some compounds
+    chemCompMZ$Name <- gsub("([-:();])|[[:punct:]]", "\\1", chemCompMZ$Name)
+    chemCompMZ$Formula <- gsub("([-:();])|[[:punct:]]","\\1", chemCompMZ$Formula)
+    
+    #ensure naming of columns is consistent with earlier function names
+    if(grep('CompoundID', colnames(chemCompMZ)) > 0){
+      chemCompMZ$chemical_ID = NULL
+      colnames(chemCompMZ)[grep('CompoundID', colnames(chemCompMZ))] = 'chemical_ID'
+    }else{
+      #original command to rename column from ID to chemical_ID
+      colnames(chemCompMZ)[which(colnames(chemCompMZ) == 'ID')] = 'chemical_ID'
+    }
+    
+    #if less-than 1000 peaks in the matrix, set the randsetsize to that value, otherwise leave as 1000
+    if (dim(dataA)[1] < 1000) {
+      randsetsize <- dim(dataA)[1]
+    }else{
+      randsetsize <- 1000
+    }
+  
+    setwd(outloc)
+  
+    #target list and associated adducts are saved
+    save(chemCompMZ, file = "chemCompMZ.Rda")
+    
+    #confirm whether levelB checks have already been performed
+    l1 <- list.files(outloc)
+    
+    print('Checking for existing level1B results')
+    
+    check_levelB <- which(l1 == "xMSannotator_levelB.Rda")
+  
+    if (length(check_levelB) < 1) {
       
-      stop("db_name should be: KEGG, HMDB, T3DB, LipidMaps, or Custom")
-  }
+      print(paste('Level1B results NOT found in', outloc, '- performing level1B procedures', sep = ''))
+      
+      #set up cluster for parallel processing purposes
+      cl <- makeSOCKcluster(num_nodes)
+      
+      #load all required packages
+      clusterApply(cl, list('XML', 'R2HTML', 'RCurl', 'SSOAP', 'limma', 'plyr', 'png'), require, character.only = T)
+      
+      clusterEvalQ(cl, library('plyr'))
   
+      #setwd(file.path(getwd(), '/', fsep=''))
+      #funcs = list.files(getwd(), full.names = F, pattern = '.R', recursive = F)
+      #funcs = funcs[-which(funcs=='multilevelannotation.R')]
+      #funcs = funcs[-which(funcs=='xMSannotator_multilevelannotation_MJ.R')]
+      #lapply(funcs, function(x) {source(x)})
+      
+      #parse required functions to cluster
+      clusterEvalQ(cl, "processWSDL")
+      clusterExport(cl, "Annotationbychemical_IDschild_multilevel")
+      clusterExport(cl, "Annotationbychemical_IDschild")
+      clusterExport(cl, "find.Overlapping.mzs")
+      clusterExport(cl, "find.Overlapping.mzsvparallel")
+      clusterExport(cl, "overlapmzchild")
+      clusterExport(cl, "getVenn")
+      
+      if (length(which(duplicated(chemCompMZ$Formula) == TRUE)) > 0) {
+          
+        #with new approach to making database, no need for this step        
+        #if (db_name == "Custom") {
+        #  chemCompMZ$mz <- as.numeric(as.character(chemCompMZ$mz))
+        #}
+        
+        chemCompMZ_unique_formulas <- chemCompMZ[-which(duplicated(chemCompMZ$Formula) == TRUE), ]
+        
+        chemCompMZ_unique_formulas <- rbind(chemCompMZ_unique_formulas, chemCompMZ[which(chemCompMZ$chemical_ID %in% 
+            chemCompMZ_unique_formulas$chemical_ID),])
+        
+        chemCompMZ_unique_formulas <- unique(chemCompMZ_unique_formulas)
+        chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[order(chemCompMZ_unique_formulas$chemical_ID),]
+      } else {
+        chemCompMZ_unique_formulas <- chemCompMZ
+      }
+                  
+                  
+      # save(chemCompMZ_unique_formulas,file='chemCompMZ_unique_formulas.Rda')
+      save(chemCompMZ, file = "chemCompMZ.Rda")
+      rm(chemCompMZ)
+      
+      #set up a unique string for each formula in the suspect screening database
+      formula_table <- table(chemCompMZ_unique_formulas$Formula)
+      uniq_formulas <- names(formula_table)
+      formula_ID <- paste("Formula", seq(1:length(uniq_formulas)), sep = "_")
+      
+      #generate a dataframe linking unique suspect screening formulae with unique formulae ID values
+      formula_id_mat <- data.frame("Formula_ID" = formula_ID, "Formula" = uniq_formulas)
+      
+      #associate each chemical ID with a unique formula ID (IMPORTANT TABLE FOR TRACEBACK)
+      #THIS APPROACH ENSURES THAT COMPOUNDS WITH IDENTICAL FORMULAE BUT DIFFERENT NAMES, ARE RETAINED IN THE DATA FRAME
+      chemCompMZ_unique_formulas <- merge(chemCompMZ_unique_formulas, formula_id_mat, by = "Formula")
+      chemCompMZ_unique_formulas$chemical_ID <- chemCompMZ_unique_formulas$Formula_ID
+      chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[, c("mz", "chemical_ID", "Name", "Formula", 
+          "MonoisotopicMass", "Adduct", "AdductMass")]
+      
+      #fix name of mz column here in order to prevent two 'mz' column names being generated during parLapply below
+      #if two columns with same name are generated, then when one merges the lists to a data frame, the second mz column is dropped
+      colnames(chemCompMZ_unique_formulas)[which(colnames(chemCompMZ_unique_formulas)=='mz')] = 'theoretical.mz'
+      
+      #generate factor object containing all unique chemical ID values
+      chemIDs <- unique(chemCompMZ_unique_formulas$chemical_ID)
+      
+      s1 <- seq(1, length(adduct_names))
+      
+      ######################## STAGE 2 OF SCORING PROCESS BEGINS HERE ######################
+      
+      print("Status 2: Mapping m/z to metabolites:")
+                  
+      # annotation_multilevel_ save(list=ls(),file='test.Rda')
+      # system.time(l2<-parLapply(cl,s1,Annotationbychemical_IDschild_multilevel,dataA=dataA,
+      # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
+      # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes))
+      
+      # a1<-Annotationbychemical_IDschild_multilevel(1,dataA=dataA,
+      # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
+      # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes)
+      
+      # a1<-Annotationbychemical_IDschild(1,dataA=dataA,
+      # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
+      # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,num_nodes=num_nodes)
+      
+      #run stage2 of the processing            
+      l2 <- parLapply(cl, s1, Annotationbychemical_IDschild, 
+        dataA = dataA, queryadductlist = adduct_names, 
+        adduct_type = c("S", gradienttype), adduct_table = adduct_table, 
+        max.mz.diff = max.mz.diff, outloc = outloc, 
+        keggCompMZ = chemCompMZ_unique_formulas, 
+        otherdbs = FALSE, otherinfo = FALSE, num_nodes = num_nodes)
+      
+      stopCluster(cl)
+      
+      levelB_res = ldply(l2, rbind)
+      
+      #clean up
+      rm(chemCompMZ)
+      rm(l2)
+            
+      #inform user if no matches found
+      if (nrow(levelB_res) < 1) {
+        stop("No matches found.")
+      }
+    
+      #define the MatchCategory column (all are assigned multiple at this point 
+      #this is updated to unique later, if just one DB match found)
+      levelB_res$MatchCategory = 'Multiple'
+    
+      #levelB_res$mz <- as.numeric(as.character(levelB_res$mz))
+      #levelB_res$time <- as.numeric(as.character(levelB_res$time))
+      #levelB_res <- as.data.frame(levelB_res)
+      #levelB_res <- cbind(levelB_res, MatchCategory)
+      
+      print("DB matches")
+      levelB_res <- unique(levelB_res)
+      print(dim(levelB_res))
+              
+      uniq_formula <- as.character(unique(levelB_res$Formula))
+                  
+      bad_formula <- which(is.na(uniq_formula) == TRUE)
+      
+      if (length(bad_formula) > 0) {
+        uniq_formula <- uniq_formula[-c(bad_formula)]
+      }
+                  
+      #set up for checking formula validity
+      cl <- makeSOCKcluster(num_nodes)
+      clusterExport(cl, "check_golden_rules")
+      clusterExport(cl, "check_element")
+                  
+      levelB_res_check <- parLapply(cl, 1:length(uniq_formula), function(j, uniq_formula, NOPS_check) {
+        
+        curformula <- as.character(uniq_formula[j])
+        return(check_golden_rules(curformula, NOPS_check = NOPS_check))
+      
+      }, uniq_formula = uniq_formula, NOPS_check = NOPS_check)
+                
+  
+      stopCluster(cl)
+    
+      #convert list to data frame
+      levelB_res_check2 <- ldply(levelB_res_check, rbind)
+                  
+      #keep only those hits that had valid molecular formulae based on golden rules and element check
+      levelB_res_check3 <- levelB_res_check2[which(levelB_res_check2$bool_check == 1), ]
+                  
+      #retaim those hits with valid formulae
+      levelB_res <- levelB_res[which(levelB_res$Formula %in% as.character(levelB_res_check3$curformula)),]
+      
+      #
+      water_adducts <- c("M+H-H2O", "M+H-2H2O", "M-H2O-H")
+      water_adduct_ind <- which(levelB_res$Adduct %in% water_adducts)
+                  
+      cl <- makeSOCKcluster(num_nodes)
+      clusterExport(cl, "check_element")
+      
+      if (length(water_adduct_ind) > 0) {
+        
+        levelB_res2 <- levelB_res[c(water_adduct_ind),]
+        levelB_res <- levelB_res[-c(water_adduct_ind),]
+        sind1 <- seq(1:dim(levelB_res2)[1])
+        
+        levelB_res_check3 <- parLapply(cl, sind1, function(j) {
+            
+          #confirm that a valid elemental formula has been assigned
+          adduct <- as.character(levelB_res2$Adduct[j])
+          curformula <- as.character(levelB_res2$Formula[j])
+          numoxygens <- check_element(curformula, "O")
+            
+          #this check should be toggled / accessible in the function variables (some people work with non-oxygen containing species)
+          if (numoxygens > 0) {
+            bool_check <- 1
+          } else {
+            bool_check <- 0
+          }
+          
+          #assigned colnames here to avoid possible referencing errors later in the process 
+          #return data frame indicating which are valid and invalid formulae, with validity indicated by bool(ean) col.
+          res <- data.frame('Formula' = curformula, 'bool' = bool_check)
+          res <- as.data.frame(res)
+          return(res)
+        })
+        
+        #merge lists in to data frame
+        levelB_res_check4 <- ldply(levelB_res_check3,rbind)
+    
+        if (length(which(levelB_res_check4$bool == 1)) > 0) {
+          #keep only valid formulae
+          levelB_res_check4 <- levelB_res_check4[which(levelB_res_check4$bool == 1), ]
+          #subset the earlier levelB_res2 object to keep those assignments associated with a valid formula
+          valid_form <- which(levelB_res2$Formula %in% as.character(levelB_res_check4$Formula))
+        }else{
+          valid_form <- {}
+        }
+    
+        #added option for instances where invalid formulae were detected (might be reasonable)
+        if (length(valid_form) > 0) {
+          levelB_res2 <- levelB_res2[valid_form,]
+          levelB_res <- rbind(levelB_res, levelB_res2)
+        }else{
+          print('no valid formulae according to Golden Rules, however, returning all formulae assigned')
+          levelB_res #check if this object is in the same format as rbind(levelB_res, levelB_res2)
+        }
+      }
+        
+      #unnecessary re-naming
+      #colnames(levelB_res) <- c("theoretical.mz","chemical_ID", "Name", 
+      #                          "Formula", "MonoisotopicMass", "Adduct", 
+      #                          "AdductMass", 'mz', "time", "MatchCategory")
+         
+      #save object to outloc     
+      save(levelB_res, file = "xMSannotator_levelB.Rda")
+                
+    } else {
+      
+      #if Stage 2 processing results already existed, load these in to globalenv.
+      print("Status 2: Using existing m/z mapping results:")
+      load("xMSannotator_levelB.Rda")
+    }
+            
+    #general clean up
+    try(rm(hmdbAllinf, envir = .GlobalEnv), silent = TRUE)
+    try(rm(hmdbAllinfv3.6), silent = TRUE)
+    try(rm(hmdbCompMZ), silent = TRUE)
+    
+    #round mz values in levelA and levelB results
+    levelA_res$mz <- round(levelA_res$mz, 5)
+    levelB_res$mz <- round(levelB_res$mz, 5)
+            
+    #determine number of results (rows) in levelB
+    last_col_ind <- dim(levelB_res)[2]
+            
+    levels_A <- names(table(levels(levelA_res$Module_RTclust)))
+    
+    levels_A <- names(levels_A)
+    levelA_res <- levelA_res[order(levelA_res$mz, levelA_res$time), ] #not required if we re-define mzid here (less risky)
+    
+    #re-define the mzid values here - this seems safer than relying on correct ordering from earlier generated mzid
+    mzid = paste(levelA_res$mz, levelA_res$time, sep = '_')
+    
+    #called from earlier-generated mzid (generated during clustering stage)        
+    if (length(which(duplicated(mzid) == TRUE)) > 0) {
+      #remove duplicated mz-retention time pairs
+      levelA_res <- levelA_res[-which(duplicated(mzid) == TRUE), ]
+      dataA <- dataA[-which(duplicated(mzid) == TRUE), ]
+    }
+    
+    #order levelA_res by Module_RTclust
+    levelA_res <- levelA_res[order(levelA_res$Module_RTclust),]
+    levels_A <- levels(unique(levelA_res$Module_RT))
+    
+    #extract the module number from the Module_RTcluster
+    module_num <- gsub(levelA_res$Module_RTclust, pattern = "_[0-9]{1,}", replacement = "")
+     
+    #store data frame linking Module_RTcluster with the associated mz values in the module       
+    #changed numeric references to named references
+    levelA_res_all <- levelA_res[, c('Module_RTclust', 'mz')] 
+    
+    #store information relating to original modules from level1A processing
+    orig_module_labels <- levelA_res$Module_RTclust
+    
+    #overwrite Module_RTclust information with just the number number
+    levelA_res_all$Module_RTclust <- module_num
+    
+    #calculate the mass defect, which is the difference between the measured mz and the nominal mz of the measured mass
+    mzdefect <- 1 * ((levelA_res$mz - floor(levelA_res$mz)))
+    
+    #determine the density of mass defect values across the level1A_res features
+    d1 <- density(mzdefect, bw = "nrd", from = min(mzdefect), 
+        to = (0.01 + max(mzdefect)))
 
-  load('adduct_table.rda')
-  
-  #if adduct_weights was not defined when executing function, set [M+/-H] as the only adducts with defined weights
-  if (is.na(adduct_weights) == TRUE) {
-      data(adduct_weights)
-      adduct_weights1 <- matrix(nrow = 2, ncol = 2, 0)
-      adduct_weights1[1, ] <- c("M+H", 1)
-      adduct_weights1[2, ] <- c("M-H", 1)
-      adduct_weights <- as.data.frame(adduct_weights1)
-      colnames(adduct_weights) <- c("Adduct", "Weight")
-      adduct_weights <- as.data.frame(adduct_weights)
-      rm(adduct_weights1)
+    #distribution of mass defect values (may be very informative if )
+    plot(d1$x, d1$y, xlab = 'mass defect (accurate mz - nominal mz)', ylab = 'density', main = 'distribution of mass defect values in input dataset')
+    
+    t1 <- d1$x
+    
+    #group identification number
+    gid <- paste("ISgroup", dim(dataA)[1], sep = "")
+    
+    levelA_res2 <- data.frame('mzdefect' = mzdefect, levelA_res)
+    
+    #updated to ensure the user-defined mass_defect_window width is applied for splitting mass defects in to groups
+    #divide mass defects in to groups based on bins that span the range mass_defect_window
+    #e.g. [0-0.009, 0.01-0.0199, 0.02-0.0299 ... 0.09-1]
+    massdefect_cor_groups <- sapply(list(myData1 = levelA_res2), function(x) {
+      split(x, cut(levelA_res2$mzdefect, breaks = seq(0, 1, mass_defect_window))) })
+          
+    #determine which mzdefect bins have an observation stored
+    if (length(which(levelA_res2$mzdefect == 0) > 0)) {
+        massdefect_cor_groups[[length(massdefect_cor_groups) + 1]] <- levelA_res2[which(levelA_res2$mzdefect == 0), ]
+    }
+    
+    #set up empty object for capturing outputs
+    diffmatB = {}
+    
+    #for each mass defect group, 
+    diffmatB = lapply(1:length(massdefect_cor_groups), function(gnum) {
+      
+      cur_group <- {}
+          
+      if (dim(massdefect_cor_groups[[gnum]])[1] > 0) {
+        
+        #create an identifier for the mass defect processing group
+        #structure is: 'ISgroup'_(module_number_pt1)_(module_number_pt2)_(massdefect_group)
+        ISgroup <- paste("ISgroup", massdefect_cor_groups[[gnum]]$Module_RTclust, gnum, sep = "_")
+            
+        # print(massdefect_cor_groups[[gnum]])
+        cur_group <- as.data.frame(massdefect_cor_groups[[gnum]])
+        cur_group <- data.frame('ISGroup' = ISgroup,cur_group)
+            
+        if (length(cur_group) > 0) {
+          cur_group <- cur_group[order(cur_group$mz, cur_group$time), ]
+
+          if (length(diffmatB) < 1) {
+            # diffmatB<-cur_group
+          } else if (dim(cur_group)[1] > 0) {
+            # diffmatB<-rbind(diffmatB,cur_group)
+          }
+        }else {
+          print(gnum)
+        }
+      }
+    
+      return(cur_group)
+    
+    })
+        
+    #generate dataframe from results (by default, drops mass defect groups where no peaks found)
+    diffmatB <- ldply(diffmatB, rbind)
+    
+    if (dim(diffmatB)[1] < dim(dataA)[1]) {
+      diffmatC <- levelA_res2[-which(levelA_res$mz %in% diffmatB$mz), ]
+                
+      if (nrow(diffmatC) > 0) {
+        t1 <- table(diffmatB[, 1])
+        isop_last <- paste("ISgroup_", diffmatC$Module_RTclust, "_", 1, sep = "")
+                  
+        diffmatC <- cbind(isop_last, diffmatC)
+        colnames(diffmatC) <- colnames(diffmatB)
+                  
+        diffmatD <- rbind(diffmatB[, c(1:10)], diffmatC[, c(1:10)])
+                  
+        rm(diffmatC)
+        rm(diffmatB)
+      } else {
+        diffmatD <- diffmatB  #[,c(1:10)]
+        rm(diffmatB)
+      }
+    } else {
+      diffmatD <- diffmatB  #[,c(1:10)]
+      rm(diffmatB)
+    }
+
+    rm(levelA_res2)
+    diffmatD <- as.data.frame(diffmatD)
+    diffmatD$mz <- as.numeric(diffmatD$mz)
+    
+    #re-order the diffmatD object by mz, then by retention time
+    diffmatD <- diffmatD[order(diffmatD$mz, diffmatD$time),]
+    
+    #re-order the levelA_res object by mz, then by retention time
+    levelA_res <- levelA_res[order(levelA_res$mz, levelA_res$time), ]
+    
+    #combine the levelA_res and diffmatD matrices
+    levelA_res1 <- cbind(diffmatD$ISGroup, levelA_res)
+    
+    ################################
+    # when replicated mzid values are found in the dataset, it might be necessary to remove corresponding rows from the 
+    # mean_int_vec object (else it could have more rows than in the filtered dataA object)
+    
+    
+    #cleaner combination of columns through use of the mzid variable
+    diffmatD$mzid = paste(round(diffmatD$mz,5), round(diffmatD$time,2), sep = '_')
+    levelA_res$mzid = paste(round(levelA_res$mz,5), round(levelA_res$time,2), sep = '_')
+    mean_int_vec$mzid = paste(round(mean_int_vec$dataA.mz, 5), round(mean_int_vec$dataA.time, 2), sep='_')
+    
+    colnames(mean_int_vec) = gsub('mean_int_vec', 'AvgIntensity', colnames(mean_int_vec))
+    
+    #merge data frames on mzid
+    levelA_res1 = merge(x = diffmatD, y = levelA_res, by = 'mzid')
+    
+    #reset mzid label (it gets rounded during merge)
+    levelA_res1$mzid = paste(round(levelA_res1$mz.x,5), round(levelA_res1$time.x,2), sep = '_')
+    
+    #merge levelA_res1 and mean_int_vec data frames (VERY IMPORTANT mzid INPUTS WERE ROUNDED TO ENSURE CORRECT MAPPING)
+    levelA_res1 = merge(x = levelA_res1, y = mean_int_vec, by = 'mzid')
+    
+    #clean up levelA_res1 object
+    colnames(levelA_res1) = gsub('.x', '', colnames(levelA_res1))
+    levelA_res1 = levelA_res1[,c('ISGroup', 'Module_RTclust', 'mz', 'time', 'AvgIntensity', 'mzdefect')]
+    colnames(levelA_res1) = gsub('mzdefect', 'MD', colnames(levelA_res1))
+    colnames(levelA_res1) = gsub('ISGroup', 'ISgroup', colnames(levelA_res1))
+   
+    #combine intensity data frame with diffmatD and define column names
+    isop_res_md = merge(x = diffmatD, y = mean_int_vec, by ='mzid')
+    colnames(isop_res_md)[grep('mzdefect', colnames(isop_res_md))] = 'MD'
+    colnames(isop_res_md)[grep('ISGroup', colnames(isop_res_md))] = 'ISgroup'
+    
+    #keep relevant columns from the merged object
+    isop_res_md = isop_res_md[,c('mz', 'time', 'ISgroup', 'Module_RTclust', 'AvgIntensity', 'MD')]
+    
+    
+    #original approach (not using mzid for merging)
+    #original approach was based on ordering data frames by mz and then by time, then cbind together
+    #isop_res_md <- cbind(diffmatD[, c(4, 5, 1, 3)], mean_int_vec$mean_int_vec, diffmatD[, c(2)])
+    #colnames(isop_res_md) <- c("mz", "time", "ISgroup", 
+    #    "Module_RTclust", "AvgIntensity", "MD")
+    # MD <- diffmatD[, c(2)]
+    # levelA_res1 <- cbind(levelA_res1[, c(1:4)], mean_int_vec, 
+    #     MD)
+    # rm(MD)
+    #cnames <- colnames(levelA_res1)
+    #cnames[1] <- "ISgroup"
+    
+    #IMPORTANT matrix defining which compounds have been mapped to which mz
+    multiresmat <- merge(levelB_res, levelA_res1, by = "mz")
+    
+    #reorder the multiresmat columns
+    multiresmat <- multiresmat[, c("mz", "time.x", 
+        "MatchCategory", "theoretical.mz", "chemical_ID", 
+        "Name", "Formula", "MonoisotopicMass", "Adduct", 
+        "ISgroup", "Module_RTclust", "time.y", "AvgIntensity", 
+        "MD")]
+    
+    #fix time.x colname
+    colnames(multiresmat) = gsub('.x', '', colnames(multiresmat))
+    
+    #order multiresmat matrix by the Module_RT parameter defined in level1_A
+    multiresmat <- multiresmat[order(multiresmat$Module_RTclust), ]
+    
+    #cleaning up
+    rm(levelB_res)
+    rm(m1)
+    
+    #determine whether a mz value has one (Unique) or more (Multiple) matches to something in the user-defined database
+    multiresmat$MatchCategory = "Multiple"
+    
+    t2 <- table(multiresmat$mz)
+    same1 <- which(t2 == 1)
+    uniquemz <- names(same1)
+    multiresmat$MatchCategory[which(multiresmat$mz %in% uniquemz)] <- "Unique"
+
+    #reorder the multiresmat by Module_RTclust and chemical_ID
+    multiresmat <- multiresmat[order(multiresmat$Module_RTclust, multiresmat$chemical_ID), ]
+            
+    #this looks to be a repeat of the steps given above and can therefore be ignored
+    #dupmz <- multiresmat$mz[which(duplicated(multiresmat$mz) == TRUE)]
+    #tablemz <- table(multiresmat$Module_RTclust, multiresmat$mz)
+    #multiresmat$MatchCategory <- rep("Multiple", dim(multiresmat)[1])
+    #multiresmat$MatchCategory[-which(multiresmat$mz %in% dupmz)] <- "Unique"
+    
+    #remove matches where no chemical ID existed in the original database (i.e. chemical_ID column was blank)
+    if (length(which(multiresmat$chemical_ID == "-")) > 0) {
+        multiresmat <- multiresmat[-which(multiresmat$chemical_ID =="-"), ]
+    }
+            
+    #table indicating the link between the chemical_ID (formula) and mz values (from dataA)
+    tall <- table(multiresmat$chemical_ID, multiresmat$mz)
+    tall_mznames <- colnames(tall)
+
+    #determine whether mz associated with more-than one compound in the user-defined database
+    tall_checkmultichems <- apply(tall, 2, sum)
+    tall_multichems <- tall[, which(tall_checkmultichems > 1)]
+    names_tall_multichems <- colnames(tall_multichems)
+    
+    #determine whether compound in database was associated with more-than one mz
+    tall_checkmultimz <- apply(tall, 1, sum)
+    tall_multimzperchem <- tall[which(tall_checkmultimz > 1), ]
+    names_tall_multimzperchem <- rownames(tall_multimzperchem)
+    chemids <- names_tall_multimzperchem  #chemids[which(t1chemids>0)]
+    
+    #compounds associated with unique mz value
+    tall_unimzperchem <- tall[which(tall_checkmultimz == 1), ]
+    single_mz_chemids <- rownames(tall_unimzperchem)
+    
+    #set up empty objects for use below
+    chem_score <- list()
+    i <- 1
+    del_mz <- {}
+    multiresmat_filt <- {}
+     
+    #already labelled as time       
+    #cnames <- colnames(dataA)
+    #cnames[2] <- "time"
+    dataA <- unique(dataA)
+    
+    #cnames <- colnames(multiresmat)
+    #cnames[10] <- "ISgroup"
+    #colnames(multiresmat) <- cnames
+       
+    #define object for use below in isotope annotations (all unique features)     
+    level_module_isop_annot <- levelA_res1
+    
+    ### this whole block is already achieved below using unique(mchemdata$chemical_ID)
+    ## determines which chemical IDs were mapped to a specific compound from the user-defined database
+    #chem_ids <- table(multiresmat$chemical_ID)
+    #chem_ids_1 <- chem_ids[which(chem_ids >= 1)]
+    #chem_ids_1 <- names(chem_ids_1)
+    #chem_ids_2 <- chem_ids_1
+
+    #unnecessary steps - column 'time' is already called time
+    #cnames <- colnames(multiresmat)
+    #cnames[2] <- "time"
+    #colnames(multiresmat) <- cnames
+    
+    #clean up
+    rm(levelA_res)
+    rm(m2)
+    
+    #save multiresmat as mchemdata (a data frame detailing which compounds and mz were linked together)
+    mchemdata <- multiresmat
+    rm(multiresmat)
+    
+    #remove rows where times from different arms of the annotation workflow don't map correctly?
+    bad_rows <- which(abs(mchemdata$time - mchemdata$time.y) > 0)
+    if (length(bad_rows) > 0) {
+        mchemdata <- mchemdata[-bad_rows, ]
+    }
+    
+    ## chemids corresponds to 'Formula_X' mapped to each mz value
+    chemids <- unique(mchemdata$chemical_ID)
+    
+    chemscoremat <- {}
+    
+    #define the groups in which isotopes will be searched
+    chemids_split = list(chemids)
+    names(chemids_split) = as.character(chemids)
+    
+    #tidy-up mchemdata object
+    mchemdata$mz <- round(as.numeric(as.character(mchemdata$mz)), 5)
+    mchemdata$time <- round(as.numeric(as.character(mchemdata$time)), 1)
+    mchemdata$MD <- round(as.numeric(as.character(mchemdata$MD)), 3)
+    mchemdata$mean_int_vec <- round(as.numeric(as.character(mchemdata$mean_int_vec)), 1)
+    mchemdata$time.y <- round(as.numeric(as.character(mchemdata$time.y)), 1) #why keep this?
+   
+    if (max_diff_rt >= 9999) {
+        module_num <- gsub(mchemdata$Module_RTclust, 
+          pattern = "_[0-9]{1,}", replacement = "")
+        module_num <- paste(module_num, "_0", sep = "")
+        mchemdata$Module_RTclust <- module_num
+    }
+    
+    write.csv(mchemdata, file = "Stage2.csv", row.names = FALSE)
+    
+    save(list = c("outloc", "adduct_weights", "boostIDs", 
+        "pathwaycheckmode", "adduct_table", "max_diff_rt", 
+        "corthresh", "filter.by", "max.rt.diff", 
+        "max_isp", "min_ions_perchem", "max.mz.diff", 
+        "db_name", "allsteps", "redundancy_check", 
+        "num_sets"), file = "tempobjects.Rda")
+    
+    save(list = c("mchemdata", "chemids", "adduct_table", 
+        "mzid", "max_diff_rt", "isop_res_md", "corthresh", 
+        "level_module_isop_annot", "chemids_split", 
+        "corthresh", "max.mz.diff", "outloc", "num_sets", 
+        "db_name", "num_nodes", "num_sets", "adduct_weights", 
+        "filter.by", "max.rt.diff", "max_isp", "MplusH.abundance.ratio.check", 
+        "mass_defect_window", "mass_defect_mode", 
+        "allsteps"), file = "step1_results.Rda")
+    
+    rm(mchemdata)
+    rm(chemids)
+    rm(mzid)
+    try(rm(global_cor), silent = TRUE)
+    rm(isop_res_md)
+    rm(level_module_isop_annot)
+    rm(dataA)
+    
+    rm(tall_unimzperchem)
+    rm(tablemz)
+    rm(levelB_res2)
+    rm(levelA_res1)
+    
+    rm(list = ls())
+    load("tempobjects.Rda")
+    
+  } else {
+    print("Status 1: Skipping step 1.")
+    print("Status 2: Using existing step1_results.Rda file.")
+    
+    allsteps_temp <- allsteps
+    load("tempobjects.Rda")
+    allsteps <- allsteps_temp
   }
+
+  #############################################################################
+  ######################## BEGIN STAGE 3 OF PROCESSING ########################
+  ## ISOTOPES ARE ASSIGNED IN THIS STEP
   
-  #fix naming of some compounds
-  chemCompMZ$Name <- gsub("([-:();])|[[:punct:]]", "\\1", chemCompMZ$Name)
-  chemCompMZ$Formula <- gsub("([-:();])|[[:punct:]]","\\1", chemCompMZ$Formula)
+  #############################################################################
   
-  #ensure naming of columns is consistent with earlier function names
-  if(grep('CompoundID', colnames(chemCompMZ)) > 0){
-    chemCompMZ$chemical_ID = NULL
-    colnames(chemCompMZ)[grep('CompoundID', colnames(chemCompMZ))] = 'chemical_ID'
-  }else{
-    #original command to rename column from ID to chemical_ID
-    colnames(chemCompMZ)[which(colnames(chemCompMZ) == 'ID')] = 'chemical_ID'
+  if (allsteps == TRUE) {
+    
+    print("Status 3: Calculating scores for individual chemicals/metabolites")
+    
+    if (length(chemids_split) > num_nodes) {
+      
+      cl <- makeSOCKcluster(num_nodes)
+          
+      clusterEvalQ(cl, "multilevelannotationstep2")
+      clusterExport(cl, "multilevelannotationstep2")
+      clusterEvalQ(cl, "library(Rdisop)")
+      clusterEvalQ(cl, "library(plyr)")
+      clusterEvalQ(cl, "library(enviPat)")
+      clusterExport(cl, "get_chemscorev1.6.71_custom")
+      clusterExport(cl, "getMolecule")
+      clusterExport(cl, "ldply")
+      clusterExport(cl, "get_confidence_stage2")
+      clusterExport(cl, "check_element")
+      clusterExport(cl, "group_by_rt_histv2")
+      clusterExport(cl, "adduct_table")
+      clusterExport(cl, "adduct_weights")
+      clusterExport(cl, "outloc")
+      
+      parLapply(cl, 1:length(chemids_split), function(arg1) {
+        
+        cur_fname <- paste(outloc, "/stage2/chem_score", arg1, ".Rda", sep = "")
+        check_if_exists <- suppressWarnings(try(load(cur_fname)))
+        
+        if (is(check_if_exists, "try-error")) {
+          multilevelannotationstep2(outloc1 = outloc, list_number = arg1)
+        } else {
+          print(paste("List ", arg1, " already exists.", sep = ""))
+        }
+        
+      })
+      
+      # max.time.diff=max.rt.diff,filter.by=filter.by,max_isp=max_isp,numnodes=1,MplusH.abundance.ratio.check=MplusH.abundance.ratio.check,mass_defect_window=mass_defect_window,mass_defect_mode=mass_defect_mode
+      
+      stopCluster(cl)
+      
+  } else {
+                
+    for (arg1 in 1:num_sets) {
+      multilevelannotationstep2(outloc1 = outloc, list_number = arg1)
+    }
+    
   }
+        
+  setwd(outloc)
   
-  #if less-than 1000 peaks in the matrix, set the randsetsize to that value, otherwise leave as 1000
-  if (dim(dataA)[1] < 1000) {
-    randsetsize <- dim(dataA)[1]
-  }else{
-    randsetsize <- 1000
-  }
+  #clean environment
+  rm(list = ls())
+  
+  try(rm(hmdbCompMZ), silent = TRUE)
+  
+  #load in earlier results
+  load("tempobjects.Rda")
+
+  print("Status 4: Pathway evaluation")
+  
+  annotres <- multilevelannotationstep3(outloc = outloc, adduct_weights = adduct_weights, 
+                                        boostIDs = boostIDs, pathwaycheckmode = pathwaycheckmode)
   
   setwd(outloc)
   
-  #target list and associated adducts are saved
-  save(chemCompMZ, file = "chemCompMZ.Rda")
+  rm(list = ls())
+  try(rm(hmdbCompMZ), silent = TRUE)
+  try(rm(hmdbCompMZ, env = .GlobalEnv), silent = TRUE)
   
-  #confirm whether levelB checks have already been performed
-  l1 <- list.files(outloc)
-  check_levelB <- which(l1 == "xMSannotator_levelB.Rda")
-  
-  if (length(check_levelB) < 1) {
-    
-    #set up cluster for parallel processing purposes
-    cl <- makeSOCKcluster(num_nodes)
-    
-    #load all required packages
-    clusterApply(cl, list('XML', 'R2HTML', 'RCurl', 'SSOAP', 'limma', 'plyr', 'png'), require, character.only = T)
-    
-    clusterEvalQ(cl, library('plyr'))
+  load("tempobjects.Rda")
 
-    #setwd(file.path(getwd(), '/', fsep=''))
-    #funcs = list.files(getwd(), full.names = F, pattern = '.R', recursive = F)
-    #funcs = funcs[-which(funcs=='multilevelannotation.R')]
-    #funcs = funcs[-which(funcs=='xMSannotator_multilevelannotation_MJ.R')]
-    #lapply(funcs, function(x) {source(x)})
-    
-    #parse required functions to cluster
-    clusterEvalQ(cl, "processWSDL")
-    clusterExport(cl, "Annotationbychemical_IDschild_multilevel")
-    clusterExport(cl, "Annotationbychemical_IDschild")
-    clusterExport(cl, "find.Overlapping.mzs")
-    clusterExport(cl, "find.Overlapping.mzsvparallel")
-    clusterExport(cl, "overlapmzchild")
-    clusterExport(cl, "getVenn")
-    
-    if (length(which(duplicated(chemCompMZ$Formula) == TRUE)) > 0) {
-        
-      #with new approach to making database, no need for this step        
-      #if (db_name == "Custom") {
-      #  chemCompMZ$mz <- as.numeric(as.character(chemCompMZ$mz))
-      #}
-      
-      chemCompMZ_unique_formulas <- chemCompMZ[-which(duplicated(chemCompMZ$Formula) == TRUE), ]
-      
-      chemCompMZ_unique_formulas <- rbind(chemCompMZ_unique_formulas, chemCompMZ[which(chemCompMZ$chemical_ID %in% 
-          chemCompMZ_unique_formulas$chemical_ID),])
-      
-      chemCompMZ_unique_formulas <- unique(chemCompMZ_unique_formulas)
-      chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[order(chemCompMZ_unique_formulas$chemical_ID),]
-    } else {
-      chemCompMZ_unique_formulas <- chemCompMZ
-    }
-                
-                
-    # save(chemCompMZ_unique_formulas,file='chemCompMZ_unique_formulas.Rda')
-    save(chemCompMZ, file = "chemCompMZ.Rda")
-    rm(chemCompMZ)
-    
-    #set up a unique string for each formula in the suspect screening database
-    formula_table <- table(chemCompMZ_unique_formulas$Formula)
-    uniq_formulas <- names(formula_table)
-    formula_ID <- paste("Formula", seq(1:length(uniq_formulas)), sep = "_")
-    
-    #generate a dataframe linking unique suspect screening formulae with unique formulae ID values
-    formula_id_mat <- data.frame("Formula_ID" = formula_ID, "Formula" = uniq_formulas)
-    
-    #associate each chemical ID with a unique formula ID (IMPORTANT TABLE FOR TRACEBACK)
-    #THIS APPROACH ENSURES THAT COMPOUNDS WITH IDENTICAL FORMULAE BUT DIFFERENT NAMES, ARE RETAINED IN THE DATA FRAME
-    chemCompMZ_unique_formulas <- merge(chemCompMZ_unique_formulas, formula_id_mat, by = "Formula")
-    chemCompMZ_unique_formulas$chemical_ID <- chemCompMZ_unique_formulas$Formula_ID
-    chemCompMZ_unique_formulas <- chemCompMZ_unique_formulas[, c("mz", "chemical_ID", "Name", "Formula", 
-        "MonoisotopicMass", "Adduct", "AdductMass")]
-    
-    #generate factor object containing all unique chemical ID values
-    chemIDs <- unique(chemCompMZ_unique_formulas$chemical_ID)
-    
-    s1 <- seq(1, length(adduct_names))
-    
-    ######################## STAGE 2 OF SCORING PROCESS BEGINS HERE ######################
-    
-    print("Status 2: Mapping m/z to metabolites:")
-                
-    # annotation_multilevel_ save(list=ls(),file='test.Rda')
-    # system.time(l2<-parLapply(cl,s1,Annotationbychemical_IDschild_multilevel,dataA=dataA,
-    # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
-    # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes))
-    
-    # a1<-Annotationbychemical_IDschild_multilevel(1,dataA=dataA,
-    # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
-    # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,chemIDs=chemIDs,num_nodes=num_nodes)
-    
-    # a1<-Annotationbychemical_IDschild(1,dataA=dataA,
-    # queryadductlist=c(adduct_names),adduct_type=c('S',gradienttype),
-    # adduct_table=adduct_table,max.mz.diff=max.mz.diff,outloc=outloc,keggCompMZ=chemCompMZ_unique_formulas,otherdbs=FALSE,otherinfo=FALSE,num_nodes=num_nodes)
-    
-    setwd('~')
-    outloc = file.path(getwd(), outloc, fsep='/')
-    
-    #run stage2 of the processing            
-    l2 <- parLapply(cl, s1, Annotationbychemical_IDschild, 
-      dataA = dataA, queryadductlist = c(adduct_names), 
-      adduct_type = c("S", gradienttype), adduct_table = adduct_table, 
-      max.mz.diff = max.mz.diff, outloc = outloc, 
-      keggCompMZ = chemCompMZ_unique_formulas, 
-      otherdbs = FALSE, otherinfo = FALSE, num_nodes = num_nodes)
-    
-    stopCluster(cl)
-    
-    levelB_res = ldply(l2, rbind)
-    
-    #clean up
-    rm(chemCompMZ)
-    rm(l2)
-            
-    if (nrow(levelB_res) < 1) {
-      stop("No matches found.")
-    }
-    
-    levelB_res$MatchCategory = 'Multiple'
-    
-    #levelB_res$mz <- as.numeric(as.character(levelB_res$mz))
-    #levelB_res$time <- as.numeric(as.character(levelB_res$time))
-    #levelB_res <- as.data.frame(levelB_res)
-    #levelB_res <- cbind(levelB_res, MatchCategory)
-    
-    print("DB matches")
-    levelB_res <- unique(levelB_res)
-    print(dim(levelB_res))
-            
-    uniq_formula <- as.character(unique(levelB_res$Formula))
-                
-    bad_formula <- which(is.na(uniq_formula) == TRUE)
-    
-    if (length(bad_formula) > 0) {
-      uniq_formula <- uniq_formula[-c(bad_formula)]
-    }
-                
-    #set up for checking formula validity
-    cl <- makeSOCKcluster(num_nodes)
-    clusterExport(cl, "check_golden_rules")
-    clusterExport(cl, "check_element")
-                
-    levelB_res_check <- parLapply(cl, 1:length(uniq_formula), function(j, uniq_formula, NOPS_check) {
-    
-                      curformula <- as.character(uniq_formula[j])
-                    
-                    return(check_golden_rules(curformula, NOPS_check = NOPS_check))
-                  }, uniq_formula = uniq_formula, NOPS_check = NOPS_check)
-                
+  print("Status 5: Assigning confidence levels")
   
-    stopCluster(cl)
+  annotresstage4 <- multilevelannotationstep4(outloc = outloc, max.rt.diff = max_diff_rt, filter.by = filter.by,
+                                              adduct_weights = adduct_table, min_ions_perchem = min_ions_perchem,
+                                              boostIDs = boostIDs, max_isp = max_isp, max.mz.diff = max.mz.diff)
+  
+  rm(list = ls())
+  load("tempobjects.Rda")
+ 
+  try(rm(hmdbAllinf, env = .GlobalEnv), silent = TRUE)
+  
+  
+  
+  if (redundancy_check == TRUE) {
     
-    #convert list to data frame
-    levelB_res_check2 <- ldply(levelB_res_check, rbind)
-                
-    #keep only those hits that had valid molecular formulae based on golden rules and element check
-    levelB_res_check3 <- levelB_res_check2[which(levelB_res_check2$bool_check == 1), ]
-                
-    #retaim those hits with valid formulae
-    levelB_res <- levelB_res[which(levelB_res$Formula %in% as.character(levelB_res_check3$curformula)),]
+    print("Status 6:Redundancy filtering")
     
-    #
-    water_adducts <- c("M+H-H2O", "M+H-2H2O", "M-H2O-H")
-    water_adduct_ind <- which(levelB_res$Adduct %in% water_adducts)
-                
-    cl <- makeSOCKcluster(num_nodes)
-    clusterExport(cl, "check_element")
+    rm(list = ls())
     
-    if (length(water_adduct_ind) > 0) {
-      levelB_res2 <- levelB_res[c(water_adduct_ind),]
-      levelB_res <- levelB_res[-c(water_adduct_ind),]
-      sind1 <- seq(1:dim(levelB_res2)[1])
-      
-      levelB_res_check3 <- parLapply(cl, sind1, function(j) {
-          
-        adduct <- as.character(levelB_res2$Adduct[j])
-        curformula <- as.character(levelB_res2$Formula[j])
-        numoxygens <- check_element(curformula, "O")
-          
-        if (numoxygens > 0) {
-          bool_check <- 1
-        } else {
-          bool_check <- 0
-        }
-          
-        res <- cbind(curformula, bool_check)
-        res <- as.data.frame(res)
-        return(res)
-      
-      })
-      
-      levelB_res_check4 <- ldply(levelB_res_check3,rbind)
-      
-      valid_form <- {
-      }
-      
-      if (length(which(levelB_res_check4[, 2] == 
-        1)) > 0) {
-        levelB_res_check4 <- levelB_res_check4[which(levelB_res_check4[, 
-          2] == 1), ]
-        
-        
-        valid_form <- which(levelB_res2$Formula %in% 
-          as.character(levelB_res_check4[, 1]))
-      }
-      if (length(valid_form) > 0) {
-        levelB_res2 <- levelB_res2[valid_form, 
-          ]
-        levelB_res <- rbind(levelB_res, levelB_res2)
-      }
-                  
-                }
-                # levelB_res<-levelB_res[,-c(1)]
-                
-                
-                colnames(levelB_res) <- c("theoretical.mz", 
-                  "chemical_ID", "Name", "Formula", "MonoisotopicMass", 
-                  "Adduct", "AdductMass", "mz", "time", "MatchCategory")
-                
-                save(levelB_res, file = "xMSannotator_levelB.Rda")
-                
-                
-                
-            } else {
-                
-                print("Status 2: Using existing m/z mapping results:")
-                load("xMSannotator_levelB.Rda")
-            }
-            
-            try(rm(hmdbAllinf, envir = .GlobalEnv), silent = TRUE)
-            
-            try(rm(hmdbAllinfv3.6), silent = TRUE)
-            try(rm(hmdbCompMZ), silent = TRUE)
-            
-            
-            
-            levelA_res$mz <- round(levelA_res$mz, 5)
-            levelB_res$mz <- round(levelB_res$mz, 5)
-            
-            # print('here')
-            # no_match<-dataA[-which(dataA$mz%in%levelB_res$mz),1:2]
-            
-            # no_match_annot<-matrix(nrow=dim(no_match)[1],ncol=8,'-')
-            
-            # no_match_1<-cbind(no_match[,1],no_match_annot,no_match[,-c(1)])
-            
-            levelB_res <- levelB_res  #[,1:10]
-            
-            # colnames(no_match_1)<-colnames(levelB_res )
-            
-            # levelB_res <-rbind(levelB_res ,no_match_1)
-            
-            last_col_ind <- dim(levelB_res)[2]
-            
-            levelB_res <- levelB_res  #[,c(1,10,2:8)]
-            
-            
-            levels_A <- levels(levelA_res$Module_RTclust)
-            
-            levels_A <- table(levelA_res$Module_RTclust)
-            levels_A <- names(levels_A)
-            # dataA_orig<-dataA
-            
-            levelA_res <- levelA_res[order(levelA_res$mz, 
-                levelA_res$time), ]
-            
-            if (length(which(duplicated(mzid) == TRUE)) > 
-                0) {
-                levelA_res <- levelA_res[-which(duplicated(mzid) == 
-                  TRUE), ]
-                
-                dataA <- dataA[-which(duplicated(mzid) == 
-                  TRUE), ]
-            }
-            
-            levelA_res <- levelA_res[order(levelA_res$Module_RTclust), 
-                ]
-            levels_A <- levels(unique(levelA_res$Module_RT))
-            
-            
-            
-            module_num <- gsub(levelA_res$Module_RTclust, 
-                pattern = "_[0-9]{1,}", replacement = "")
-            
-            
-            levelA_res_all <- levelA_res[, c(1:2)]
-            
-            orig_module_labels <- levelA_res$Module_RTclust
-            
-            levelA_res_all$Module_RTclust <- module_num
-            
-            
-            
-            
-            mzdefect <- 1 * ((levelA_res$mz - floor(levelA_res$mz)))
-            
-            
-            
-            d1 <- density(mzdefect, bw = "nrd", from = min(mzdefect), 
-                to = (0.01 + max(mzdefect)))
-            
-            
-            
-            t1 <- d1$x
-            
-            
-            gid <- {
-            }
-            
-            gid <- paste("ISgroup", dim(dataA)[1], sep = "")
-            
-            levelA_res2 <- cbind(mzdefect, levelA_res)
-            
-            
-            massdefect_cor_groups <- sapply(list(myData1 = levelA_res2), 
-                function(x) split(x, cut(levelA_res2$mzdefect, 
-                  breaks = seq(0, 1, 0.01))))
-            
-            if (length(which(levelA_res2$mzdefect == 0) > 
-                0)) {
-                massdefect_cor_groups[[length(massdefect_cor_groups) + 
-                  1]] <- levelA_res2[which(levelA_res2$mzdefect == 
-                  0), ]
-            }
-            diffmatB <- {
-            }
-            # gnum in
-            diffmatB <- lapply(1:length(massdefect_cor_groups), 
-                function(gnum) {
-                  
-                  cur_group <- {
-                  }
-                  
-                  if (dim(massdefect_cor_groups[[gnum]])[1] > 
-                    0) {
-                    
-                    ISgroup <- paste("ISgroup", massdefect_cor_groups[[gnum]]$Module_RTclust, 
-                      gnum, sep = "_")
-                    
-                    # print(massdefect_cor_groups[[gnum]])
-                    cur_group <- as.data.frame(massdefect_cor_groups[[gnum]])
-                    cur_group <- cbind(ISgroup, cur_group)
-                    
-                    
-                    if (length(cur_group) > 0) {
-                      
-                      cur_group <- cur_group[order(cur_group$mz, 
-                        cur_group$time), ]
-                      
-                      
-                      if (length(diffmatB) < 1) {
-                        # diffmatB<-cur_group
-                      } else {
-                        
-                        
-                        if (dim(cur_group)[1] > 0) {
-                          # diffmatB<-rbind(diffmatB,cur_group)
-                        }
-                      }
-                      
-                    }
-                  } else {
-                    print(gnum)
-                  }
-                  return(cur_group)
-                })
-            
-            
-            diffmatB <- ldply(diffmatB, rbind)
-            diffmatB <- as.data.frame(diffmatB)
-            
-            
-            
-            if (dim(diffmatB)[1] > 0) {
-                cnames <- colnames(diffmatB)
-                cnames[1] <- "ISGroup"
-                
-                colnames(diffmatB) <- cnames
-            }
-            
-            
-            if (dim(diffmatB)[1] < dim(dataA)[1]) {
-                diffmatC <- levelA_res2[-which(levelA_res$mz %in% 
-                  diffmatB$mz), ]
-                
-                if (nrow(diffmatC) > 0) {
-                  t1 <- table(diffmatB[, 1])
-                  isop_last <- paste("ISgroup_", diffmatC$Module_RTclust, 
-                    "_", 1, sep = "")
-                  
-                  diffmatC <- cbind(isop_last, diffmatC)
-                  colnames(diffmatC) <- colnames(diffmatB)
-                  
-                  
-                  diffmatD <- rbind(diffmatB[, c(1:10)], 
-                    diffmatC[, c(1:10)])
-                  
-                  rm(diffmatC)
-                  rm(diffmatB)
-                } else {
-                  diffmatD <- diffmatB  #[,c(1:10)]
-                  rm(diffmatB)
-                }
-            } else {
-                
-                diffmatD <- diffmatB  #[,c(1:10)]
-                rm(diffmatB)
-            }
-            rm(levelA_res2)
-            diffmatD <- as.data.frame(diffmatD)
-            diffmatD$mz <- as.numeric(diffmatD$mz)
-            
-            diffmatD <- diffmatD[order(diffmatD$mz, diffmatD$time), 
-                ]
-            
-            levelA_res <- levelA_res[order(levelA_res$mz, 
-                levelA_res$time), ]
-            
-            levelA_res1 <- cbind(diffmatD[, 1], levelA_res)
-            
-            ### this didn't work print(head(levelA_res1))
-            
-            # mean_int_vec<-apply(levelA_res1[,-c(1:4)],1,function(x){mean(x,na.rm=TRUE)})
-            
-            isop_res_md <- cbind(diffmatD[, c(4, 5, 1, 3)], 
-                mean_int_vec, diffmatD[, c(2)])
-            
-            colnames(isop_res_md) <- c("mz", "time", "ISgroup", 
-                "Module_RTclust", "AvgIntensity", "MD")
-            
-            # print(isop_res_md[1:3,])
-            
-            
-            
-            
-            
-            MD <- diffmatD[, c(2)]
-            levelA_res1 <- cbind(levelA_res1[, c(1:4)], mean_int_vec, 
-                MD)
-            rm(MD)
-            
-            cnames <- colnames(levelA_res1)
-            cnames[1] <- "ISgroup"
-            
-            colnames(levelA_res1) <- cnames
-            
-            
-            
-            multiresmat <- merge(levelB_res, levelA_res1, 
-                by = "mz")
-            
-            multiresmat <- multiresmat[, c("mz", "time.x", 
-                "MatchCategory", "theoretical.mz", "chemical_ID", 
-                "Name", "Formula", "MonoisotopicMass", "Adduct", 
-                "ISgroup", "Module_RTclust", "time.y", "mean_int_vec", 
-                "MD")]
-            
-            colnames(multiresmat) <- c("mz", "time", "MatchCategory", 
-                "theoretical.mz", "chemical_ID", "Name", 
-                "Formula", "MonoisotopicMass", "Adduct", 
-                "ISgroup", "Module_RTclust", "time.y", "mean_int_vec", 
-                "MD")
-            
-            rm(levelB_res)
-            
-            multiresmat <- multiresmat[order(multiresmat$Module_RTclust), 
-                ]
-            
-            rm(m1)
-            
-            
-            
-            t2 <- table(multiresmat$mz)
-            
-            same1 <- which(t2 == 1)
-            
-            uniquemz <- names(same1)
-            
-            multiresmat$MatchCategory = rep("Multiple", dim(multiresmat)[1])
-            
-            multiresmat$MatchCategory[which(multiresmat$mz %in% 
-                uniquemz)] <- "Unique"
-            
-            
-            
-            setwd(outloc)
-            
-            
-            
-            
-            multiresmat <- multiresmat[order(multiresmat$Module_RTclust, 
-                multiresmat$chemical_ID), ]
-            
-            
-            
-            dupmz <- multiresmat$mz[which(duplicated(multiresmat$mz) == 
-                TRUE)]
-            
-            tablemz <- table(multiresmat$Module_RTclust, 
-                multiresmat$mz)
-            
-            multiresmat$MatchCategory <- rep("Multiple", 
-                dim(multiresmat)[1])
-            
-            multiresmat$MatchCategory[-which(multiresmat$mz %in% 
-                dupmz)] <- "Unique"
-            
-            if (length(which(multiresmat$chemical_ID == "-")) > 
-                0) {
-                multiresmat <- multiresmat[-which(multiresmat$chemical_ID == 
-                  "-"), ]
-                
-                
-                
-            }
-            
-            tall <- table(multiresmat$chemical_ID, multiresmat$mz)
-            
-            tall_mznames <- colnames(tall)
-            
-            
-            
-            tall_checkmultichems <- apply(tall, 2, sum)
-            
-            tall_multichems <- tall[, which(tall_checkmultichems > 
-                1)]
-            
-            names_tall_multichems <- colnames(tall_multichems)
-            
-            tall_checkmultimz <- apply(tall, 1, sum)
-            
-            tall_multimzperchem <- tall[which(tall_checkmultimz > 
-                1), ]
-            tall_unimzperchem <- tall[which(tall_checkmultimz == 
-                1), ]
-            
-            names_tall_multimzperchem <- rownames(tall_multimzperchem)
-            
-            chemids <- names_tall_multimzperchem  #chemids[which(t1chemids>0)]
-            
-            single_mz_chemids <- rownames(tall_unimzperchem)
-            
-            
-            chemids <- chemids
-            chem_score <- new("list")
-            i <- 1
-            
-            
-            del_mz <- {
-            }
-            
-            
-            multiresmat_filt <- {
-            }
-            
-            
-            cnames <- colnames(dataA)
-            cnames[2] <- "time"
-            colnames(dataA) <- as.character(cnames)
-            dataA <- unique(dataA)
-            
-            cnames <- colnames(multiresmat)
-            cnames[10] <- "ISgroup"
-            colnames(multiresmat) <- cnames
-            
-            
-            
-            
-            level_module_isop_annot <- levelA_res1
-            
-            
-            chem_ids <- table(multiresmat$chemical_ID)
-            chem_ids_1 <- chem_ids[which(chem_ids >= 1)]
-            chem_ids_1 <- names(chem_ids_1)
-            
-            chem_ids_2 <- chem_ids_1
-            
-            
-            
-            chemids <- chem_ids_2
-            
-            
-            cnames <- colnames(multiresmat)
-            cnames[2] <- "time"
-            colnames(multiresmat) <- cnames
-            
-            
-            rm(levelA_res)
-            rm(levelB_res)
-            rm(m2)
-            
-            mchemdata <- multiresmat
-            
-            rm(multiresmat)
-            
-            mchemdata <- as.data.frame(mchemdata)
-            
-            
-            mchemdata$mz <- as.numeric(as.character(mchemdata$mz))
-            mchemdata$time <- as.numeric(as.character(mchemdata$time))
-            
-            
-            bad_rows <- which(abs(mchemdata$time - mchemdata$time.y) > 
-                0)
-            
-            if (length(bad_rows) > 0) {
-                
-                mchemdata <- mchemdata[-bad_rows, ]
-                
-            }
-            
-            
-            chemids <- unique(mchemdata$chemical_ID)
-            
-            
-            
-            chemids <- unique(chemids)
-            
-            
-            chemscoremat <- {
-            }
-            
-            if (length(chemids) > 10) {
-                num_sets <- length(chemids)/2
-                
-            } else {
-                
-                num_sets <- 1
-            }
-            
-            list_winsize <- num_sets
-            
-            list_size <- round(length(chemids)/list_winsize)
-            
-            
-            
-            if (length(chemids) > list_winsize) {
-                
-                g <- seq(1, length(chemids), list_size)
-                g <- factor(g)
-                chemids_split <- split(1:length(chemids), 
-                  f = g)
-                split_size <- 1:list_winsize
-                
-            } else {
-                chemids_split <- split(1:length(chemids), 
-                  f = length(chemids))
-                split_size <- c(1)
-            }
-            
-            
-            num_sets = length(chemids_split)
-            
-            # if(FALSE)
-            {
-                mchemdata$mz <- round(as.numeric(as.character(mchemdata$mz)), 
-                  5)
-                mchemdata$time <- round(as.numeric(as.character(mchemdata$time)), 
-                  1)
-                mchemdata$MD <- round(as.numeric(as.character(mchemdata$MD)), 
-                  3)
-                mchemdata$mean_int_vec <- round(as.numeric(as.character(mchemdata$mean_int_vec)), 
-                  1)
-                mchemdata$time.y <- round(as.numeric(as.character(mchemdata$time.y)), 
-                  1)
-            }
-            
-            
-            
-            if (max_diff_rt >= 9999) {
-                module_num <- gsub(mchemdata$Module_RTclust, 
-                  pattern = "_[0-9]{1,}", replacement = "")
-                module_num <- paste(module_num, "_0", sep = "")
-                mchemdata$Module_RTclust <- module_num
-            }
-            # write.table(mchemdata,file='Stage2.txt',sep='\t',row.names=FALSE)
-            write.csv(mchemdata, file = "Stage2.csv", row.names = FALSE)
-            
-            # print('Memory used after step1') print(mem_used())
-            
-            save(list = c("outloc", "adduct_weights", "boostIDs", 
-                "pathwaycheckmode", "adduct_table", "max_diff_rt", 
-                "corthresh", "filter.by", "max.rt.diff", 
-                "max_isp", "min_ions_perchem", "max.mz.diff", 
-                "db_name", "allsteps", "redundancy_check", 
-                "num_sets"), file = "tempobjects.Rda")
-            
-            save(list = c("mchemdata", "chemids", "adduct_table", 
-                "mzid", "max_diff_rt", "isop_res_md", "corthresh", 
-                "level_module_isop_annot", "chemids_split", 
-                "corthresh", "max.mz.diff", "outloc", "num_sets", 
-                "db_name", "num_nodes", "num_sets", "adduct_weights", 
-                "filter.by", "max.rt.diff", "max_isp", "MplusH.abundance.ratio.check", 
-                "mass_defect_window", "mass_defect_mode", 
-                "allsteps"), file = "step1_results.Rda")
-            
-            rm(mchemdata)
-            rm(chemids)
-            rm(mzid)
-            try(rm(global_cor), silent = TRUE)
-            rm(isop_res_md)
-            rm(level_module_isop_annot)
-            rm(dataA)
-            
-            rm(tall_unimzperchem)
-            rm(tablemz)
-            rm(levelB_res2)
-            rm(levelA_res1)
-            
-            rm(list = ls())
-            load("tempobjects.Rda")
-        } else {
-            
-            
-            print("Status 1: Skipping step 1.")
-            print("Status 2: Using existing step1_results.Rda file.")
-            
-            allsteps_temp <- allsteps
-            load("tempobjects.Rda")
-            allsteps <- allsteps_temp
-        }
-        
-        
-        
-        
-        
-        if (allsteps == TRUE) {
-            
-            print("Status 3: Calculating scores for individual chemicals/metabolites")
-            
-            
-            
-            if (num_sets > num_nodes) {
-                
-                
-                cl <- makeSOCKcluster(num_nodes)
-                
-                clusterEvalQ(cl, "multilevelannotationstep2")
-                
-                clusterExport(cl, "multilevelannotationstep2")
-                
-                clusterEvalQ(cl, "library(Rdisop)")
-                clusterEvalQ(cl, "library(plyr)")
-                # clusterEvalQ(cl, 'library(pryr)') clusterEvalQ(cl,
-                # 'library(profmem)') clusterEvalQ(cl, 'library(gdata)')
-                clusterExport(cl, "get_chemscorev1.6.71")
-                clusterExport(cl, "getMolecule")
-                clusterExport(cl, "ldply")
-                # clusterExport(cl, 'mem_used')
-                clusterExport(cl, "get_confidence_stage2")
-                
-                # clusterExport(cl, 'll')
-                clusterExport(cl, "check_element")
-                clusterExport(cl, "group_by_rt_histv2")
-                clusterExport(cl, "adduct_table")
-                clusterExport(cl, "adduct_weights")
-                
-                parLapply(cl, 1:num_sets, function(arg1) {
-                  
-                  cur_fname <- paste(outloc, "/stage2/chem_score", 
-                    arg1, ".Rda", sep = "")
-                  check_if_exists <- suppressWarnings(try(load(cur_fname)))
-                  
-                  if (is(check_if_exists, "try-error")) {
-                    
-                    
-                    # suppressWarnings(multilevelannotationstep2(outloc1=outloc,list_number=arg1))
-                    multilevelannotationstep2(outloc1 = outloc, 
-                      list_number = arg1)
-                  } else {
-                    
-                    print(paste("List ", arg1, " already exists.", 
-                      sep = ""))
-                  }
-                  
-                })
-                
-                # max.time.diff=max.rt.diff,filter.by=filter.by,max_isp=max_isp,numnodes=1,MplusH.abundance.ratio.check=MplusH.abundance.ratio.check,mass_defect_window=mass_defect_window,mass_defect_mode=mass_defect_mode
-                
-                stopCluster(cl)
-            } else {
-                
-                
-                for (arg1 in 1:num_sets) {
-                  multilevelannotationstep2(outloc1 = outloc, 
-                    list_number = arg1)
-                }
-                
-            }
-            
-            
-            setwd(outloc)
-            
-            # print('Memory used after step2 before removing all
-            # objects') print(mem_used())
-            rm(list = ls())
-            
-            try(rm(hmdbCompMZ), silent = TRUE)
-            
-            load("tempobjects.Rda")
-            
-            # print('Memory used after step2 and removing all
-            # objects') print(mem_used())
-            # print(ll()[order(ll()$KB),])
-            
-            # if(allsteps==TRUE)
-            {
-                print("Status 4: Pathway evaluation")
-                # suppressWarnings(annotres<-multilevelannotationstep3(outloc=outloc,adduct_weights=adduct_weights,boostIDs=boostIDs,pathwaycheckmode=pathwaycheckmode))
-                annotres <- multilevelannotationstep3(outloc = outloc, 
-                  adduct_weights = adduct_weights, boostIDs = boostIDs, 
-                  pathwaycheckmode = pathwaycheckmode)
-                
-                # print('Memory used after step3') print(mem_used())
-                
-                setwd(outloc)
-                rm(list = ls())
-                
-                # print('Memory used before step4') print(mem_used())
-                
-                try(rm(hmdbCompMZ), silent = TRUE)
-                try(rm(hmdbCompMZ, env = .GlobalEnv), silent = TRUE)
-                
-                load("tempobjects.Rda")
-                
-                
-                
-                
-                # size_objects<-sort(sapply(ls(), function(x)
-                # format(object.size(get(x)), unit = 'auto')))
-                # print(size_objects)
-                
-                print("Status 5: Assigning confidence levels")
-                # suppressWarnings(annotresstage4<-multilevelannotationstep4(outloc=outloc,max.rt.diff=max_diff_rt,filter.by=filter.by,adduct_weights=adduct_weights,min_ions_perchem=min_ions_perchem,boostIDs=boostIDs,max_isp=max_isp,max.mz.diff=max.mz.diff))
-                annotresstage4 <- multilevelannotationstep4(outloc = outloc, 
-                  max.rt.diff = max_diff_rt, filter.by = filter.by, 
-                  adduct_weights = adduct_weights, min_ions_perchem = min_ions_perchem, 
-                  boostIDs = boostIDs, max_isp = max_isp, 
-                  max.mz.diff = max.mz.diff)
-                
-                # print('Memory used after step4') print(mem_used())
-                
-                rm(list = ls())
-                
-                load("tempobjects.Rda")
-                
-                
-                
-                
-                try(rm(hmdbAllinf, env = .GlobalEnv), silent = TRUE)
-                
-                
-                
-                if (redundancy_check == TRUE) {
-                  
-                  print("Status 6:Redundancy filtering")
-                  
-                  rm(list = ls())
-                  
-                  load("tempobjects.Rda")
-                  
-                  suppressWarnings(annotresstage5 <- multilevelannotationstep5(outloc = outloc, 
-                    max.rt.diff = max_diff_rt, filter.by = filter.by, 
-                    adduct_weights = adduct_weights, min_ions_perchem = min_ions_perchem, 
-                    boostIDs = boostIDs, max_isp = max_isp, 
-                    db_name = db_name, max.mz.diff = max.mz.diff))
-                  
-                  # print('Stage 5 confidence level distribution for unique
-                  # chemical/metabolite IDs')
-                  # print(table(annotresstage5$Confidence[-which(duplicated(annotresstage5$chemical_ID)==TRUE)]))
-                  
-                } else {
-                  
-                  annotresstage5 <- {
-                  }
-                }
-            }
-            
-        } else {
-            
-            annotres <- {
-            }  #mchemdata
-        }
-        
-        
-        
+    load("tempobjects.Rda")
+    
+    suppressWarnings(annotresstage5 <- multilevelannotationstep5(outloc = outloc, 
+      max.rt.diff = max_diff_rt, filter.by = filter.by, 
+      adduct_weights = adduct_weights, min_ions_perchem = min_ions_perchem, 
+      boostIDs = boostIDs, max_isp = max_isp, 
+      db_name = db_name, max.mz.diff = max.mz.diff))
+    
+    # print('Stage 5 confidence level distribution for unique
+    # chemical/metabolite IDs')
+    # print(table(annotresstage5$Confidence[-which(duplicated(annotresstage5$chemical_ID)==TRUE)]))
+    
+  } else {
+    
+    annotresstage5 <- {
     }
+  }
+}
+        
+    } else {
+        
+        annotres <- {
+        }  #mchemdata
+    }
+    
+    
+    
+}
     
     
     print("################")

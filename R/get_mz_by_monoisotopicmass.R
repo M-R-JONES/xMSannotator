@@ -35,7 +35,7 @@ get_mz_by_monoisotopicmass <- function(monoisotopicmass,
     mult_charge <- adduct_table$charge
     num_mol <- adduct_table$num_molecules
     
-    names(adductlist) <- as.character(adduct_names)
+    names(adduct_names) <- as.character(adduct_names)
     names(mult_charge) <- as.character(adduct_names)
     names(num_mol) <- as.character(adduct_names)
     

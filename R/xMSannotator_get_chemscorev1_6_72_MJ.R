@@ -6,7 +6,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                                        max_diff_rt = max_diff_rt,
                                        level_module_isop_annot = isp_masses_mz_data,
                                        adduct_table = adduct_table,
-                                       adduct_weights = adduct_weights,
+                                       adduct_weights = adduct_table,
                                        filter.by=c("M+H"),
                                        max_isp = max_isp,
                                        MplusH.abundance.ratio.check = MplusH.abundance.ratio.check,
@@ -18,22 +18,18 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
   
   #THIS FUNCTION NOW CALCULATES ISOTOPES CORRECTLY, INCLUDING FOR X-MER AND MULTIPLY CHARGED FORMS
   
-  adduct_weights = adduct_table
-  #adduct_weights = data.frame('Adduct' = adduct_table, 'Weight' = 1)
-  
+  #set the working directory to the output directory defined by the user
   setwd(outlocorig)
+  #set up a subdirectory for storing isotope annotation information
   outloc1<-paste(outlocorig,"/stage2/",sep="")
   suppressWarnings(dir.create(outloc1))
   setwd(outloc1) 
-  
-  mchemicaldata$mz<-as.numeric(as.character(mchemicaldata$mz))
-  mchemicaldata$time<-as.numeric(as.character(mchemicaldata$time))
-  mchemicaldata$MonoisotopicMass<-as.numeric(as.character(mchemicaldata$MonoisotopicMass))
   
   #this is the object that is submitted for isotope annotation
   level_module_isop_annot$mz<-as.numeric(as.character(level_module_isop_annot$mz))
   level_module_isop_annot$time<-as.numeric(as.character(level_module_isop_annot$time))
   
+  #set default value for chemical scoring
   chemical_score<-(-100)
   fname<-paste(chemicalid,"data.txt",sep="_")
   
@@ -44,8 +40,8 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
       #  mchemicaldata<-mchemicaldata[-which(duplicated(mchemicaldata$mz)==TRUE),]
     }
     
+    #simplift the Module_RTclust descriptor (from initial clustering procedure)
     mchemicaldata$Module_RTclust<-gsub(mchemicaldata$Module_RTclust,pattern="_[0-9]*",replacement="")
-    
     mchemicaldata_orig<-mchemicaldata
     
     

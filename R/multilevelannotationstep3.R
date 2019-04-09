@@ -4,44 +4,17 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
     
     setwd(outloc1)
     
-    
-    if (is.na(num_sets) == FALSE) {
-        
-        num_sets_1 = num_sets
-    } else {
-        
-        num_sets_1 = NA
-    }
     load("step1_results.Rda")
     load("chemCompMZ.Rda")
-    rm(global_cor)
     
-    rm(global_cor, env = .GlobalEnv)
-    # rm(dataA)
+    #rm(global_cor)
+    #rm(global_cor, env = .GlobalEnv)
+    #rm(dataA)
     setwd(outloc1)
     
     num_sets <- length(chemids_split)
     
-    if (is.na(num_sets_1) == FALSE) {
-        num_sets = num_sets_1
-    }
-    
-    
-    rm(dataA)
-    # rm(levelA_res1)
-    
-    # print(ls())
-    
-    if (num_sets >= length(chemids_split)) {
-        num_sets <- length(chemids_split)
-        
-        
-    }
-    
-    
-    
     outloc <- outloc1
-    
     
     if (is.na(adduct_weights) == TRUE) {
         data(adduct_weights)
@@ -54,7 +27,10 @@ multilevelannotationstep3 <- function(outloc1, adduct_weights = NA,
         adduct_weights <- as.data.frame(adduct_weights1)
         colnames(adduct_weights) <- c("Adduct", "Weight")
         
+    }else{
+      adduct_weights = adduct_weights
     }
+    
     outloc1 <- paste(outloc, "/stage2/", sep = "")
     suppressWarnings(dir.create(outloc1))
     setwd(outloc1)
