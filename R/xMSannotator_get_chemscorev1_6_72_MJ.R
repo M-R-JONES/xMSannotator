@@ -14,7 +14,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                                        mass_defect_mode = mass_defect_mode,
                                        outlocorig = outloc,
                                        iso_ppm_tol = 5,
-                                       iso_int_tol = 0.05){
+                                       iso_int_tol = 0.15){
   
   #THIS FUNCTION NOW CALCULATES ISOTOPES CORRECTLY, INCLUDING FOR X-MER AND MULTIPLY CHARGED FORMS
   
@@ -104,7 +104,6 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
     
     #keep only those Module_RTclusts which have value greater than 0
     table_mod<-table_mod[table_mod>0]
-    
     table_mod<-table_mod[order(table_mod,decreasing=TRUE)]
     
     #store the original chemical data info for this mass-defect and tr set in mchemicaldata_origA
@@ -187,6 +186,8 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         #from enviPat package, read in isotopes table
         data(isotopes)
         
+        max_isp_count = max_isp
+        
         #calculate the fine isotope structure for the formula, taking in to account charge-state and adduct elements
         mol_isos = enviPat::isopattern(isotopes, chemforms = form, charge = z, threshold = 0.1)
         
@@ -238,7 +239,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         if(max_isotope_abundance < 100){
           query_int<-1*(mchemicaldata$AvgIntensity[m])
         }else{
-          #multiple the compound intensity by the ratio of its intensity to that of its largest isotope
+          #multiply the compound intensity by the ratio of its intensity to that of its largest isotope
           ratio = max(top_isotopes$abundance) / mchemicaldata$AvgIntensity[m]
           query_int = ratio * mchemdata$AvgIntensity[m]
           #this is a tolerance factor that adds 10% further to the intensity value to ensure largest isotope captured
@@ -399,18 +400,15 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                       temp_var<-cbind(put_isp_masses_curmz_data[isp_v,c(1:2)],
                                       t(other_inf),
                                       put_isp_masses_curmz_data[isp_v,c(3:4)],
-                                      put_isp_masses_curmz_data[isp_v,c(2,5:6)])
+                                      put_isp_masses_curmz_data[isp_v,c(2,5:6)],
+                                      isotope_elements) #ADDED - provides details of which elements contributed to the putative isotope annotation
                       
                       temp_var<-as.data.frame(temp_var)
                       
                       colnames(temp_var)<-colnames(mchemicaldata)
-                      
                       temp_var$Formula<-form_name
                       temp_var$Name<-as.character(mchemicaldata$Name[m])
                       temp_var$chemical_ID<-as.character(mchemicaldata$chemical_ID[m])
-                      
-                      #ADDED - provides details of which elements contributed to the putative isotope annotation
-                      temp_var = cbind(temp_var, isotope_elements)
                       
                       #temp_var$Adduct<-paste(mchemicaldata[m,9],"_[+",isnum,"]",sep="")
                       
@@ -436,9 +434,6 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                         }
                         
                         if(nrow(temp_var)>0){
-                          
-                          #add new column to final_isp_annot for storing isotope elements
-                          final_isp_annot_res<-cbind(final_isp_annot_res, 'isotope_elements' = NA)
                           
                           final_isp_annot_res<-rbind(final_isp_annot_res,temp_var)
                         }
@@ -548,7 +543,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
     #################################################################################################
     
     #summarise which modules (from stage1A clustering procedure) remain in the mchemicaldata object
-    #mchemicaldata object: contains info. relating to mz values associated with database compounds + isotopes
+    #mchemicaldata object: contains info. relating to mz values associated with module
     table_mod<-table(mchemicaldata$Module_RTclust)
     table_mod<-table_mod[table_mod>0]
     table_mod<-table_mod[order(table_mod,decreasing=TRUE)]
@@ -595,7 +590,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         
         #extract information corresponding to the module & re-order by mz value
         #mchemicaldata<-mchemicaldata_orig[which(mchemicaldata_orig$Module_RTclust==top_mod[i]),] #earlier approach
-        mchemicaldata<-mchemicaldata_orig[which(mchemicaldata_orig$Module_RTclust==top_mod_cleaned),]
+        mchemicaldata<-mchemicaldata_orig[which(mchemicaldata_orig$Module_RTclust==top_mod[i]),]
         mchemicaldata<-mchemicaldata[order(mchemicaldata$mz),]
         
         #get associated adducts
@@ -610,7 +605,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         # the adduct with the heighest weight will be used (as defined in adduct_weights$Weight)
         # contribution equals 10^[adduct weight]
         
-        if(nrow(mchemicaldata)>=1){ 
+        if(length(mchemicaldata$mz)>=1){ 
           
           #confirm adduct existed in the valid adducts defined in the adduct_weights object
           good_adducts_len<-length(which(cur_adducts_with_isotopes%in%adduct_weights$Adduct))
@@ -650,7 +645,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         #generate identifiers for the features present in the currently-considered Module_RTclust group
         mzid_cur<-paste(mchemicaldata$mz,mchemicaldata$time,sep="_") #mzid_cur<-paste(curmchemdata$mz,curmchemdata$time,sep="_") #mzid_cur<-paste(chem_score$filtdata$mz,chem_score$filtdata$time,sep="_")
         
-        #remove duplicated features from the mchemicaldata dataframe
+        #remove duplicated features from the mchemicaldata dataframe (i.e. those associated with M+H, 2M+2H and 3M+3H)
         dup_features<-which(duplicated(mzid_cur)==TRUE)
         if(length(dup_features)>0){
           mchemicaldata<-mchemicaldata[-c(dup_features),]
@@ -660,34 +655,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         
         ## extract the correlation coefficients between peaks in the module ####
         # following lines are original approach - should work fine if retention times are not rounded in earlier steps
-        #cor_mz<-global_cor[which(mzid%in%mzid_cur),which(mzid%in%mzid_cur)]
-        #cor_mz<-round(cor_mz,1)
-
-        ######## REMOVE THIS LATER IF RETENTION TIMES ARE NOT ROUNDED IN EARLIER STEPS!
-        
-        #ADDED: this section overcomes issues associated with earlier rounding of the retention time
-        gc_row_nms = rownames(global_cor) #extract rownames from global_cor object
-        gc_row_nms_info = strsplit(gc_row_nms, "_") #split based on '_' giving mz and retention time
-        
-        mzs = laply(gc_row_nms_info, function(x) {
-          round( as.numeric(x[1]), 5)
-        }) #round mz values to 5 d.p.
-        
-        times = laply(gc_row_nms_info, function(x) {
-          round( as.numeric(x[2]), 1)
-        }) #round times to 1 d.p.
-        
-        #re-define the global_cor row and column names using the rounded values
-        gc_row_nms = paste(mzs, times, sep='_') #combine rounded mz and time pairs to generate new rownames for global_cor
-        rownames(global_cor) = gc_row_nms
-        colnames(global_cor) = gc_row_nms
-        
-        
-        #################################### END OF DELETION REGION IF RETENTION TIMES NOT ROUNDED EARLIER #####
-        
-        #extract the relevant section from the global_cor correlation matrix
-        #extract correlation coefficients for mapped peaks from the global_cor object
-        cor_mz<-global_cor[which(gc_row_nms%in%mzid_cur),which(gc_row_nms%in%mzid_cur)]
+        cor_mz<-global_cor[which(mzid%in%mzid_cur),which(mzid%in%mzid_cur)]
         cor_mz<-round(cor_mz,1)
         
         #if more than one feautre in currently-considered Module_RTclust, then matrix > 1 row.
@@ -718,9 +686,9 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
         # 6) layer_one_associated obj. = determines which features are linked by intensity correlation and retention times
         # 7) second_level_associations obj. = features that are correlated only based on intensity (retention times are too far apart)
         
-        if(nrow(cor_mz)>1){
+        if(length(cor_mz)>1){
           
-          #determine how many mz are correlated with one another
+          #determine how many mz are correlated with each peak in the correlation matrix
           check_cor<-sapply(1:dim(cor_mz)[1],function(k){
             count_mz<-length(which(cor_mz[k,]>=corthresh))-1 #-1 here is to remove the count for the feature itself
             return(count_mz)
@@ -805,6 +773,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
             
             #stop("sf")
             if(MplusH.abundance.ratio.check==TRUE){
+              #might need to be <= for mchemicaldata$AvgIntensity < mchemicaldata$AvgIntensity[hub_mz]
               layer_one_associations<-which(cor_mz[hub_mz,]>=corthresh & 
                                               mchemicaldata$AvgIntensity<mchemicaldata$AvgIntensity[hub_mz] & 
                                               diff_rt_hubmz<=max_diff_rt)
@@ -814,7 +783,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
             
             #object for storing information on which features are associated ONLY BY CORRELATIONS (i.e. not by rt and correlation of intensities)
             second_level_associations<-{}
-            
+
             for(l in layer_one_associations){
               second_level_associations<-c(which(cor_mz[l,]>=0.7))
             }
@@ -839,13 +808,15 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
             }
             
             #remove empty rows 
-            mchemicaldata<-na.omit(mchemicaldata)
+            
+            #mchemicaldata<-na.omit(mchemicaldata) #original version
+            keep.indx = which(complete.cases(mchemicaldata[,c(1:(ncol(mchemicaldata)-1))])) #check which rows are not empty
+            mchemicaldata = mchemicaldata[keep.indx,]
+            rm(keep.indx)
             #if fewer-than 2 rows in mchemicaldata, no need to consider feature further as nothing is associated with it
-            if(nrow(mchemicaldata)<2){
+            if(length(mchemicaldata$mz)<2){
               next
             }
-            
-            mchemicaldata<-as.data.frame(mchemicaldata)
             
             diff_rt<-abs(min(as.numeric(mchemicaldata$time))-max(as.numeric(mchemicaldata$time)))
             
@@ -856,7 +827,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
               mchemicaldata<-mchemicaldata[-which(is.na(mchemicaldata$time)==TRUE),]
             }
             
-            if(nrow(mchemicaldata)<2){
+            if(length(mchemicaldata$time)<2){
               next
             }
             
@@ -880,7 +851,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                 #associated adducts
                 cur_adducts_with_isotopes<-mchemicaldata$Adduct
                 
-                #fix formating of adducts
+                #fix formating of adduct for isotope (usually looks like M+H_[+1] and becomes M+H)
                 cur_adducts<-gsub(cur_adducts_with_isotopes,pattern="(_\\[(\\+|\\-)[1-2]*\\])",replacement="")
                 
                 #determine how many adducts are valid according to user-specified adduct_weights information
@@ -894,7 +865,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                 
                 if(good_adducts_len>0){
                   
-                  chemical_score<-sum(chemical_score*(10^max(as.numeric(as.character(adduct_weights[which(adduct_weights[,1]%in%cur_adducts_with_isotopes),2])))))
+                  chemical_score<-sum(chemical_score*(10^max(adduct_weights[which(adduct_weights$Adduct%in%cur_adducts_with_isotopes),2])))
                   chemical_score<-chemical_score[1]
                 }
                 
@@ -917,7 +888,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
               #return(list("chemical_score"=chemical_score,"filtdata"=mchemicaldata))
             } else{
 
-              ############ ANNOTATE LATER ##########
+              ############ 11 April 2019 ######
 
               #print("fixing time")
               
@@ -925,48 +896,61 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
               
               #mchemicaldata<-chem_score
               mchemicaldata$Module_RTclust<-gsub(mchemicaldata$Module_RTclust,pattern="_[0-9]*",replacement="")
-              mchemicaldata<-cbind(mchemicaldata[,c(2:11)],mchemicaldata[,1],mchemicaldata[,c(12:14)])
-              colnames(mchemicaldata)<-c("mz","time","MatchCategory","theoretical.mz","chemical_ID","Name","Formula","MonoisotopicMass","Adduct","ISgroup","Module_RTclust","time.y","AvgIntensity", "MD")
+              #mchemicaldata<-cbind(mchemicaldata[,c(2:11)],mchemicaldata[,1],mchemicaldata[,c(12:14)])
+              #colnames(mchemicaldata)<-c("mz","time","MatchCategory","theoretical.mz","chemical_ID","Name","Formula","MonoisotopicMass","Adduct","ISgroup","Module_RTclust","time.y","AvgIntensity", "MD")
+              #updated to include isotope_elements column
+              mchemicaldata<-cbind(mchemicaldata[,c(2:11)],mchemicaldata[,1],mchemicaldata[,c(12:15)])
+              colnames(mchemicaldata)<-c("mz","time","MatchCategory","theoretical.mz","chemical_ID","Name","Formula","MonoisotopicMass","Adduct","ISgroup","Module_RTclust","time.y","AvgIntensity", "MD", "isotope_elements")
               mchemicaldata<-as.data.frame(mchemicaldata)
               mchemicaldata$time<-as.numeric(as.character(mchemicaldata$time))
-
+              
+              #get the identifier of the RTclust module
               groupnumA<-unique(mchemicaldata$Module_RTclust)
               
+              #determine the density (and plot) of a given compound along chromatographic axis
               mchemicaldata<-group_by_rt_histv2(mchemicaldata,time_step=1,max_diff_rt=max_diff_rt,groupnum=groupnumA)
               
-              #print("done")
+              #determine frequency of occurrence of each RTclust modules in mchemicaldata obj. and assign names to each in resulting table
               top_mod_sub<-table(mchemicaldata$Module_RTclust)
               top_mod_sub_names<-names(top_mod_sub)
               
+              #determine which RTclust module occurred most frequently and subset mchemicaldata to keep only this, then order by mz
               max_top_mod<-which(top_mod_sub==max(top_mod_sub))[1]
-              
               mchemicaldata<-mchemicaldata[which(mchemicaldata$Module_RTclust==top_mod_sub_names[max_top_mod]),]
               mchemicaldata<-mchemicaldata[order(mchemicaldata$mz),]
               
+              #determine which adducts were detected (includes isotopes assigned as adduct, e.g. M+H_[+1] which becomes M+H)
               cur_adducts_with_isotopes<-mchemicaldata$Adduct
               cur_adducts<-gsub(cur_adducts_with_isotopes,pattern="(_\\[(\\+|\\-)[0-9]*\\])",replacement="")
 
-              d1<-density(mchemicaldata$time,bw=max_diff_rt,from=min(mchemicaldata$time)-0.001,to=(0.01+max(mchemicaldata$time)),na.rm=TRUE)
-              s1<-summary(d1$x) #mchemicaldata$time)
-              iqr1<-s1[5]-s1[2]
+              ## it looks as though interquartile range is calculated in two ways, therefore commented-out first approach
               
-              if(iqr1>max_diff_rt/2){
-                iqr1<-max_diff_rt/2
-              }
+              ##determine the interquartile range of retention times within the RTclust module
+              #d1<-density(mchemicaldata$time,bw=max_diff_rt,from=min(mchemicaldata$time)-0.001,to=(0.01+max(mchemicaldata$time)),na.rm=TRUE)
+              #s1<-summary(d1$x) #mchemicaldata$time)
               
-              min_val<-s1[2] #-(1.5*iqr1)
-              max_val<-s1[5] #+(1.5*iqr1)
+              ##iqr1<-s1[5]-s1[2] #previous approach
+              #iqr1<-s1[which(names(s1)=='3rd Qu.')]-s1[which(names(s1)=='1st Qu.')]
+              
+              ##determine whether the interquartile range was more than half the allowed difference in retention times
+              #if(iqr1>max_diff_rt/2){
+              #  iqr1<-max_diff_rt/2
+              #}
+    
+              #min_val<-s1[2] #-(1.5*iqr1)
+              #max_val<-s1[5] #+(1.5*iqr1)
                 
+              ######### HERE: adjust retention time tolerance if features within RTclust module are separated by more-than max_diff_rt variable
+              print(paste('working on Module_RTclust_', unique(mchemicaldata$Module_RTclust), sep =''))
+              print(paste('max_diff_rt was set at: ', max_diff_rt, sep = ''))
+              print(paste('attempting to adjust...'))
               s1<-summary(mchemicaldata$time)
               iqr1<-s1[5]-s1[2]
               #print(s1)
               min_val<-s1[2]-(1.5*iqr1)
               max_val<-s1[5]+(1.5*iqr1)
-              
-              #print(min_val)
-              #print(max_val)
+
               if(min_val<s1[1] && max_val>s1[6]){
-                #min_val<-s1[1]
                 iqr1<-min(abs(s1[3]-s1[2]),abs(s1[3]-s1[5]))
                 min_val<-s1[2]-(1.5*iqr1)
                 max_val<-s1[5]+(1.5*iqr1)
@@ -984,65 +968,73 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
               iqr1<-min(abs(s1[3]-s1[2]),abs(s1[3]-s1[5]))
               iqr1<-max(iqr1,max_diff_rt)
               
+              print(paste('New max_diff_rt value set at: ', iqr1, sep = ''))
               
+              #determine range of times for features in RTclust
               diff_rt<-abs(max(mchemicaldata$time)-min(mchemicaldata$time))
-              
-              #	print("fixed time")
-              #				print(diff_rt)
-              #				print(mchemicaldata)
-              #return(mchemicaldata)
               
               if(nrow(mchemicaldata)<1){
                 next
               }
               
+              #divide data in to time chunks, with the bin size being the iqr1 value, and the range being from below min and above max
               if(diff_rt>2*max_diff_rt){
-                time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x)  split(x,cut(mchemicaldata$time,breaks=seq(min_val-max_diff_rt,max_val+max_diff_rt,iqr1))))
+                time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x){
+                  split(x,cut(mchemicaldata$time,breaks=seq(min_val-max_diff_rt,max_val+max_diff_rt,iqr1)))
+                })
               }else{
-                
                 max_val<-max(mchemicaldata$time)
                 min_val<-min(mchemicaldata$time)
                 diff_rt<-abs(max(mchemicaldata$time)-min(mchemicaldata$time))
-                
-                if(min_val<max_diff_rt){
-                  
-                  #time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x) split(x,cut(mchemicaldata$time,breaks=seq(0,max_val,1*max_diff_rt))))
-                  
-                  time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x) split(x,cut(mchemicaldata$time,breaks=c(0,max_val+1))))
-                }else{
-                  
-                  if(diff_rt<max_diff_rt){
-                    
-                    time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x) split(x,cut(mchemicaldata$time,breaks=c(min_val-diff_rt,max_val+diff_rt,diff_rt*2))))
-                  }else{
-                    time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x)  split(x,cut(mchemicaldata$time,breaks=seq(min_val-diff_rt,max_val+diff_rt,1*max_diff_rt))))
-                  }
-                }
+              }
+              
+              
+              if(min_val<max_diff_rt){
+                #time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x) split(x,cut(mchemicaldata$time,breaks=seq(0,max_val,1*max_diff_rt))))
+                time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x){
+                  split(x,cut(mchemicaldata$time,breaks=c(0,max_val+1)))
+                })
+              }else if(diff_rt<max_diff_rt){
+                time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x){
+                  split(x,cut(mchemicaldata$time,breaks=c(min_val-diff_rt,max_val+diff_rt,diff_rt*2)))
+                })
+              }else{
+                  time_cor_groups<-sapply(list(myData1=mchemicaldata),function(x){
+                    split(x,cut(mchemicaldata$time,breaks=seq(min_val-diff_rt,max_val+diff_rt,1*max_diff_rt)))
+                  })
               }
 
-              
-              #return(time_cor_groups)
-              
+              #determine how many features are in each retention time bin
               group_sizes<-sapply(time_cor_groups,function(x){dim(as.data.frame(x))[1]})
+              
+              #set up objects for capturing processing outputs
               group_ind_val<-1
               group_ind_size<-1
               check_reladd<-{}
               check_data<-{}
+              
+              #determine which group had the greatest number of features in it and record the index of that group
               if(length(which(group_sizes>1))>0){
                 group_ind_val<-which(group_sizes==max(group_sizes)[1])
-                
               }
+              
+              #record the number of features in the largest group
               group_ind_size<-max(group_sizes)[1]
               
+              #if fewer than 2 features in the largest group
               if(group_ind_size<2){
-                k_power<-1.25
-                mchemicaldata<-mchemicaldata_orig[which(mchemicaldata_orig$Module_RTclust==top_mod[i]),]
-
-                mchemicaldata<-mchemicaldata[order(mchemicaldata$mz),]
                 
+                #as before, now process chemical score
+                
+                k_power<-1.25
+                
+                mchemicaldata<-mchemicaldata_orig[which(mchemicaldata_orig$Module_RTclust==top_mod[i]),]
+                mchemicaldata<-mchemicaldata[order(mchemicaldata$mz),]
+                  
+                #generate list of adducts, including those associated with isotopes (corrected e.g. M+H_[+1] becomes M+H)
                 cur_adducts_with_isotopes<-mchemicaldata$Adduct
                 cur_adducts<-gsub(cur_adducts_with_isotopes,pattern="(_\\[(\\+|\\-)[0-9]*\\])",replacement="")
-                
+                  
                 good_adducts_len<-length(which(cur_adducts_with_isotopes%in%adduct_weights[,1]))
                 # chemical_score<-length(unique(cur_adducts))*good_adducts_len*(1*(topquant_cor))*(1/((diff_rt*0.1)+1)^k_power)
                 
@@ -1053,11 +1045,12 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                 }
                 
               }
-              
+                
               good_temp<-{}
+              
               for(g1 in 1:length(group_sizes)){
                 tempdata<-time_cor_groups[[g1]]
-                check_reladd<-which(tempdata$Adduct%in%as.character(adduct_weights[,1]))
+                check_reladd<-which(tempdata$Adduct%in%as.character(adduct_weights$Adduct))
                 if(length(check_reladd)>0){
                   good_temp<-c(good_temp,g1)
                   if(nrow(tempdata)>group_ind_size){
@@ -1065,16 +1058,12 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                     group_ind_size<-nrow(tempdata)
                   }
                 }
-                
               }
-              
-              
+            
               if(length(which(group_sizes>1))>0){
-                
                 
                 temp_best_score<-(-100)
                 temp_best_data<-{}
-                
                 
                 for(g2 in 1:length(group_sizes)){
                   
@@ -1094,15 +1083,10 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                     if(nrow(mchemicaldata)<1){
                       next
                     }
-                    
-                    
-                    
+
                     diff_rt<-abs(min(as.numeric(mchemicaldata$time))-max(as.numeric(mchemicaldata$time)))
                     diff_rt<-round(diff_rt)
-                    #print("diff rT")
-                    #print(diff_rt)
-                    #print(mchemicaldata)
-                    
+
                     dup_add<-{} #which(duplicated(mchemicaldata$Adduct)==TRUE)
                     if(length(dup_add)>0){
                       dup_data<-mchemicaldata[c(dup_add),]
@@ -1115,6 +1099,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                     if(nrow(mchemicaldata)<1){
                       next
                     }
+                    
                     if(diff_rt<=max_diff_rt){
 
                       if(dim(mchemicaldata)[1]>1){
@@ -1146,6 +1131,7 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
                       }else{
                         chemical_score<-0
                       }
+                      
                       names(chemical_score)<-chemicalid[1]
                       
                     }else{
@@ -1577,4 +1563,5 @@ get_chemscorev1.6.71_custom = function(chemicalid = chemid,
     rm("mzid","global_cor","temp_global_cor")
     return(list("chemical_score"=chemical_score,"filtdata"=mchemicaldata))
   }
-}
+  }
+  

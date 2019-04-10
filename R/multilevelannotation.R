@@ -959,6 +959,10 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     try(rm(hmdbAllinfv3.6), silent = TRUE)
     try(rm(hmdbCompMZ), silent = TRUE)
     
+    #to restart from here
+    #load("../xMSannotator_levelB.Rda")
+    #load("../xMSannotator_levelA_modules.Rda")
+    
     #round mz values in levelA and levelB results
     levelA_res$mz <- round(levelA_res$mz, 5)
     levelB_res$mz <- round(levelB_res$mz, 5)
@@ -1264,10 +1268,10 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     
     #tidy-up mchemdata object
     mchemdata$mz <- round(as.numeric(as.character(mchemdata$mz)), 5)
-    mchemdata$time <- round(as.numeric(as.character(mchemdata$time)), 1)
+    #mchemdata$time <- round(as.numeric(as.character(mchemdata$time)), 1)
     mchemdata$MD <- round(as.numeric(as.character(mchemdata$MD)), 3)
     mchemdata$AvgIntensity <- round(as.numeric(as.character(mchemdata$AvgIntensity)), 1)
-    mchemdata$time.y <- round(as.numeric(as.character(mchemdata$time.y)), 1) #why keep this?
+    #mchemdata$time.y <- round(as.numeric(as.character(mchemdata$time.y)), 1) #why keep this?
    
     if (max_diff_rt >= 9999) {
         module_num <- gsub(mchemdata$Module_RTclust, 

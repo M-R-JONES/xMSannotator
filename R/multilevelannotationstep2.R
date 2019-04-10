@@ -52,7 +52,8 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
     
     #for each set of formulae (as defined by chemids_split and list_number) get the list of associated 
     #    features based on mass defect and retention time
-    chem_score <- lapply(1:length(chemids_split), function(j) {
+    
+    chem_score <- lapply(as.list(list_number), function(j) {
       
       #get 'Formula_X' name
       chemid <- chemids[j[1]]
@@ -109,7 +110,7 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
                                         mass_defect_mode = mass_defect_mode,
                                         outlocorig = outloc,
                                         iso_ppm_tol = 5,
-                                        iso_int_tol = 0.05)
+                                        iso_int_tol = 0.15)
       
       return(out)
 
