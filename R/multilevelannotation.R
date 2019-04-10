@@ -290,6 +290,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         })
       }
       
+      
       #create a series of unique mzid strings that map directly to the dataA object
       mzid <- paste(dataA$mz, dataA$time, sep = "_")
       
@@ -391,6 +392,11 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         
       }
       
+      #clean up some bulky items
+      rm(dissTOMCormat)
+      rm(hr)
+      rm(a1)
+      
       #here the row name labels get screwed up by re-ordering during processing
       #hence, re-assign correct labels!
       rownames(levelA_res) = paste(levelA_res$mz, levelA_res$time, sep = '_')
@@ -398,6 +404,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       
       print(paste('Saving level1A results to: ', file.path(outloc, 'xMSannotator_levelA_modules.Rda', fsep = ''), sep =''))
       print(paste('Saving level1A results to: ', file.path(outloc, 'Stage1.csv', fsep = ''), sep =''))
+
       
     } else {
     
@@ -889,7 +896,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         levelB_res <- levelB_res[-c(water_adduct_ind),]
         sind1 <- seq(1:dim(levelB_res2)[1])
         
-        levelB_res_check3 <- parLapply(cl, sind1, function(j) {
+        levelB_res_check3 <- parLapply(cl, sind1, function(j, levelB_res2) {
             
           #confirm that a valid elemental formula has been assigned
           adduct <- as.character(levelB_res2$Adduct[j])
@@ -908,7 +915,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
           res <- data.frame('Formula' = curformula, 'bool' = bool_check)
           res <- as.data.frame(res)
           return(res)
-        })
+        }, levelB_res2)
         
         #merge lists in to data frame
         levelB_res_check4 <- ldply(levelB_res_check3,rbind)
@@ -1217,7 +1224,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     #cnames[10] <- "ISgroup"
     #colnames(multiresmat) <- cnames
        
-    #define object for use below in isotope annotations (all unique features)     
+    #VERY IMPORTANT OBJECT FOR ISOTOPE ASSIGNMENT (all unique features from dataA, after clustering)     
     level_module_isop_annot <- levelA_res1
     
     ### this whole block is already achieved below using unique(mchemdata$chemical_ID)
@@ -1252,7 +1259,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     chemscoremat <- {}
     
     #define the groups in which isotopes will be searched
-    chemids_split = list(chemids)
+    chemids_split = as.list(as.character(chemids))
     names(chemids_split) = as.character(chemids)
     
     #tidy-up mchemdata object
@@ -1300,7 +1307,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     rm(levelB_res2)
     rm(levelA_res1)
     
-    rm(list = ls())
+    #rm(list = ls())
     load("tempobjects.Rda")
     load("step1_results.Rda")
     

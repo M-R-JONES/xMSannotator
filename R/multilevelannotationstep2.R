@@ -56,7 +56,7 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
       
       #get 'Formula_X' name
       chemid <- chemids[j[1]]
-      print(chemid)
+      print(as.character(chemid))
       
       chemscoremat <- {}
       curmchemdata <- mchemdata[which(mchemdata$chemical_ID == chemid), ]

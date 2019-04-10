@@ -6,3 +6,4 @@ Change log:
 - HMDB query section simplified
 - import the customDB as a dataframe without the need for further conversions between character and numeric
 - the water adduct check is wrong as it does not add on / subtract the number of water "adducts" from the formula
+- in the region in which time neighbours is calculated, added -1 to account for the fact the peak should not be added to the calculation (overall it won't change anything, as all peaks are treated equally, i.e. all have +1 too many neighbours indicated)
