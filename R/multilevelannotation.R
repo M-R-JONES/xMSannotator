@@ -341,7 +341,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       
       # dynamically cut the dendrogram generated during clustering, using the distM matrix to define closeness of features
       mycl_metabs <- cutreeDynamic(hr, distM = dissTOMCormat, 
-                                   deepSplit = 1, minClusterSize = minclustsize, 
+                                   deepSplit = deepsplit, minClusterSize = minclustsize, 
                                    pamRespectsDendro = FALSE, pamStage = TRUE, 
                                    verbose = 0)
       
@@ -1268,10 +1268,8 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     
     #tidy-up mchemdata object
     mchemdata$mz <- round(as.numeric(as.character(mchemdata$mz)), 5)
-    #mchemdata$time <- round(as.numeric(as.character(mchemdata$time)), 1)
     mchemdata$MD <- round(as.numeric(as.character(mchemdata$MD)), 3)
     mchemdata$AvgIntensity <- round(as.numeric(as.character(mchemdata$AvgIntensity)), 1)
-    #mchemdata$time.y <- round(as.numeric(as.character(mchemdata$time.y)), 1) #why keep this?
    
     if (max_diff_rt >= 9999) {
         module_num <- gsub(mchemdata$Module_RTclust, 
@@ -1343,6 +1341,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       clusterEvalQ(cl, "library(Rdisop)")
       clusterEvalQ(cl, "library(plyr)")
       clusterEvalQ(cl, "library(enviPat)")
+      clusterExport(cl, "calc_adduct_isotope_score")
       clusterExport(cl, "get_chemscorev1.6.71_custom")
       clusterExport(cl, "getMolecule")
       clusterExport(cl, "ldply")

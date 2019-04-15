@@ -94,7 +94,7 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
         mass_defect_mode = "pos"
       }
       
-      out = get_chemscorev1.6.71_custom(chemicalid = chemid,
+      out = get_chemscorev1.6.73_custom(chemicalid = chemid,
                                         mchemicaldata = curmchemdata,
                                         corthresh = corthresh,
                                         global_cor = global_cor,
