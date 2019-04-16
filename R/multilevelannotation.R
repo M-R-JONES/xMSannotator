@@ -113,13 +113,13 @@
 multilevelannotation <- function(dataA, max.mz.diff = 10, 
     max.rt.diff = 10, clustmethod = 'WGCNA', cormethod = "pearson", num_nodes = 2, 
     queryadductlist = c("all"), gradienttype = "Acetonitrile", 
-    mode = "pos", outloc, db_name = "HMDB", customDB_path = '', adduct_weights = NA, 
+    mode = "pos", outloc, db_name = "HMDB", adduct_weights = NA, 
     num_sets = 3000, allsteps = TRUE, corthresh = 0.7, NOPS_check = TRUE, 
     customIDs = NA, missing.value = NA, missing.permute = 100, deepsplit = 2, networktype = "unsigned", 
     minclustsize = 10, module.merge.dissimilarity = 0.2, 
     filter.by = c("M+H"), redundancy_check = TRUE, min_ions_perchem = 1, 
     biofluid.location = NA, origin = NA, status = NA, boostIDs = NA, 
-    max_isp = 5, MplusH.abundance.ratio.check = FALSE, customDB = NA, 
+    max_isp = 5, MplusH.abundance.ratio.check = FALSE, customDB = customDB, 
     HMDBselect = "union", mass_defect_window = 0.01, mass_defect_mode = "pos", 
     dbAllinf = NA, pathwaycheckmode = "pm", iso_int_tol = 0.3, iso_ppm_tol = 5) {
   
@@ -629,11 +629,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     } else if (db_name == "Custom") {
       
       #read in suspect screening database
-      if(customDB_path != ''){
-        customDB = read.csv(customDB_path, header = T, stringsAsFactors = F)
-      }else{
-        data(customDB)
-      }
+      customDB = customDB
       
       colnames(customDB)[which(colnames(customDB)=='ID')] = 'CompoundID'
       colnames(customDB)[which(colnames(customDB)=='Name')] = 'Name'
