@@ -1353,8 +1353,29 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     
     if (length(chemids_split) > num_nodes) {
       
+      # if(length(chemids_split) > 10){
+      #   library(dplyr)
+      #   library(data.table)
+      #   library(foreach)
+      #   library(doParallel)
+      #   #library(parallel)
+      #   registerDoParallel(num_nodes)
+      #   annotation.df = rbindlist(foreach(i = 1:length(chemids_split), .multicombine = T, .packages=c("dplyr", "plyr", "Rdisop", "enviPat"),
+      #                 .export = c("multilevelannotationstep2", "mchemdata", "calc_adduct_isotope_score",
+      #                             "get_chemscorev1.6.73_custom", "assign_isotopes", "getMolecule",
+      #                             "ddply", "ldply", "get_confidence_stage2", "check_element",
+      #                             "group_by_rt_histv2", "adduct_table", "adduct_weights",
+      #                             "outloc", "iso_ppm_tol", "iso_int_tol")) %dopar% {
+      #                               multilevelannotationstep2(outloc1 = outloc, list_number = i)
+      #                             }, idcol = T)
+      # }else{
+      #   
+      #   annotation.df = rbindlist(lapply(as.list(1:length(chemids_split)), multilevelannotationstep2, outloc1=outloc ),idcol = T)
+      # }
+      
+     
       cl <- makeSOCKcluster(num_nodes)
-          
+
       clusterEvalQ(cl, "multilevelannotationstep2")
       clusterExport(cl, "multilevelannotationstep2")
       clusterEvalQ(cl, "library(Rdisop)")
@@ -1376,28 +1397,28 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       clusterExport(cl, "iso_ppm_tol")
       clusterExport(cl, "iso_int_tol")
       
-      parLapply(cl, 1:length(chemids_split), function(arg1) {
-        
+      require(data.table)
+
+      annotation.df = rbindlist(parLapply(cl, 1:length(chemids_split), function(arg1) {
+
         cur_fname <- paste(outloc, "/stage2/chem_score", arg1, ".Rda", sep = "")
         check_if_exists <- suppressWarnings(try(load(cur_fname)))
-        
+
         if (is(check_if_exists, "try-error")) {
-          multilevelannotationstep2(outloc1 = outloc, list_number = arg1)
+          out.df = multilevelannotationstep2(outloc1 = outloc, list_number = arg1)
         } else {
           print(paste("List ", arg1, " already exists.", sep = ""))
+          out.df = get(load(cur_fname))
         }
-        
-      })
+
+      }), idcol = T)
       
       # max.time.diff=max.rt.diff,filter.by=filter.by,max_isp=max_isp,numnodes=1,MplusH.abundance.ratio.check=MplusH.abundance.ratio.check,mass_defect_window=mass_defect_window,mass_defect_mode=mass_defect_mode
       
       stopCluster(cl)
       
     } else {
-        
-      for (arg1 in 1:length(chemids_split) ) {
-        multilevelannotationstep2(outloc1 = outloc, list_number = arg1)
-      }
+      annotation.df = rbindlist(lapply(as.list(1:length(chemids_split)), multilevelannotationstep2, outloc1=outloc ),idcol = T)
     }
         
     setwd(outloc)
@@ -1412,7 +1433,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   
     print("Status 4: Pathway evaluation")
     
-    annotres <- multilevelannotationstep3(outloc = outloc, adduct_weights = adduct_weights, 
+    annotres <- multilevelannotationstep3(outloc = outloc, num_sets = length(chemids_split),adduct_weights = adduct_weights, 
                                           boostIDs = boostIDs, pathwaycheckmode = pathwaycheckmode)
     
     setwd(outloc)

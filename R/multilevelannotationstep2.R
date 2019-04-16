@@ -130,14 +130,13 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
     #clean up cluster
     rm(chem_score)
     rm(chem_score2)
-    rm("curchemscoremat", "mchemdata", "chemids", "adduct_table", 
+    rm( "mchemdata", "chemids", "adduct_table", 
         "global_cor", "mzid", "max_diff_rt", "isop_res_md", 
         "corthresh", "level_module_isop_annot", "chemids_split", 
         "corthresh", "max.mz.diff", "outloc", "num_sets", 
         "db_name", "num_nodes", "num_sets", "adduct_weights", 
         "filter.by")
-    rm(list = ls())
-    
+    return(curchemscoremat)
     
     
 }
