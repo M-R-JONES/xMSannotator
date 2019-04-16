@@ -27,7 +27,7 @@ assign_isotopes = function(add_indx,
                            mass_defect_window = 0.1, 
                            mass_defect_mode = "pos",
                            max_isp = 5, 
-                           iso_int_tol = 0.15, 
+                           iso_int_tol = 0.3, 
                            iso_ppm_tol = 5){
   
   print(paste('Adduct index', add_indx, sep = ''))
@@ -294,6 +294,14 @@ assign_isotopes = function(add_indx,
               iso_hits = subset(iso_hits, 
                                 iso_hits$abundance > (percent - (percent * iso_int_tol)) &
                                   iso_hits$abundance < (percent + (percent * iso_int_tol)))
+              
+              #temp = rbind( data.frame('mz' =top_isotopes$mz, 'int'=top_isotopes$abundance, 'type' = 'ref'), 
+              #              data.frame('mz' = put_isp_masses_curmz_data$mz, 'int' = (put_isp_masses_curmz_data$AvgIntensity / mchemicaldata$AvgIntensity[add_indx])*100, 
+              #                         'type' = 'exp')   )
+              #rownames(temp) = paste(temp$mz, temp$type, sep = '_')
+              #temp
+              #temp = hclust(dist(temp[,c(1:2)], diag = T))
+              #cutree(temp, 5)
               
               #FORM NAME IS FOR NEUTRAL MOLECULE AS DEFINED IN THE USER-SELECTED DATABASE!
               if(nrow(iso_hits) > 0){

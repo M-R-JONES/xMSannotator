@@ -109,8 +109,8 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
                                         mass_defect_window = mass_defect_window,
                                         mass_defect_mode = mass_defect_mode,
                                         outlocorig = outloc,
-                                        iso_ppm_tol = 5,
-                                        iso_int_tol = 0.15)
+                                        iso_ppm_tol = iso_ppm_tol,
+                                        iso_int_tol = iso_int_tol)
       
       return(out)
 

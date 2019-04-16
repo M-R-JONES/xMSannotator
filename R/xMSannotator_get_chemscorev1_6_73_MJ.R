@@ -14,7 +14,7 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
                                        mass_defect_mode = mass_defect_mode,
                                        outlocorig = outloc,
                                        iso_ppm_tol = 5,
-                                       iso_int_tol = 0.15){
+                                       iso_int_tol = 0.3){
   
   #mchemicaldata = all data from the original dataA dataframe that is associated with a specific chemical formula from the DB
   #level_module_isop_annot = a dataframe providing details of the mz, retention time,ISgroup, RT clust module, intensity and mass defect of ALL features
@@ -746,6 +746,6 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
   
   
   
-  rm("mzid","global_cor","temp_global_cor")
+  rm("mzid","global_cor")
   return(list("chemical_score"=best_chemical_score,"filtdata"=mchemicaldata))
 }
