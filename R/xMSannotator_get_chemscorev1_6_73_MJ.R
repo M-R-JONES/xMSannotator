@@ -288,7 +288,7 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
       if(length(mchemicaldata$mz)>=1){ 
         
         #assign chemical score based on the best-weighted adduct form (here, ignores isotope peaks and peak correlations)
-        assigning.score = calc_adduct_isotope_score(k_power = 1, adduct_weights = adduct_weights,mchemicaldata = mchemdata, 
+        assigning.score = calc_adduct_isotope_score(k_power = 1, adduct_weights = adduct_weights,mchemicaldata = mchemicaldata, 
                                   topquant_cor = NA, calc_iso_score = F, adduct_scoring_method = 'simple')
         
         chemical_score = as.numeric(assigning.score$chemical_score)

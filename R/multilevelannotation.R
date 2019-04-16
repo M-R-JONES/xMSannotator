@@ -233,6 +233,8 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
           adduct_table <- adduct_table[which(adduct_table$Adduct %in% adduct_names), ]
       }
   }
+  
+  print(adduct_names)
     
   #ensure that adduct names are unique after previous filtering step
   adduct_names <- unique(adduct_names)
@@ -1335,6 +1337,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     
     allsteps_temp <- allsteps
     load("tempobjects.Rda")
+    load("step1_results.Rda")
     allsteps <- allsteps_temp
   }
 

@@ -30,6 +30,8 @@ get_mz_by_monoisotopicmass <- function(monoisotopicmass,
       queryadductlist = c("M+H")
       queryadductlist = as.list(queryadductlist)
     }
+    
+    adduct_names = queryadductlist
 
     adductmass <- adduct_table$adductMass
     mult_charge <- adduct_table$charge
