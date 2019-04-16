@@ -1,17 +1,14 @@
 ## INSTALL
+install.packages('devtools')
+install.packages("BiocManager")
 install.packages('data.table')
 install.packages('digest')
 devtools::install_github('omegahat/XMLSchema')
 devtools::install_github('cran/SSOAP')
-source("http://bioconductor.org/biocLite.R")
-biocLite("SSOAP")
-biocLite("KEGGREST")
-biocLite("pcaMethods")
-biocLite("Rdisop")
-biocLite("GO.db")
-biocLite("matrixStats")
-biocLite('WGCNA')
-devtools::install_github("yufree/xMSannotator")
+BiocManager::install(c("KEGGREST", "pcaMethods", "Rdisop", "GO.db", "matrixStats", "WGCNA", "enviPat")
+
+#BiocManager::install("SSOAP") # no longer available
+#devtools::install_github("yufree/xMSannotator")
 
 - source: https://sourceforge.net/projects/xmsannotator/
 - Formated by `formatR` package
