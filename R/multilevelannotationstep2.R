@@ -110,7 +110,8 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
                                         mass_defect_mode = mass_defect_mode,
                                         outlocorig = outloc,
                                         iso_ppm_tol = iso_ppm_tol,
-                                        iso_int_tol = iso_int_tol)
+                                        iso_int_tol = iso_int_tol,
+                                        list_number = list_number)
       
       return(out)
 
@@ -119,6 +120,7 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
     cur_fname <- paste("chem_score", list_number, "_a.Rda", sep = "")
     chem_score2 <- chem_score[which(chem_score != "NULL")]
     curchemscoremat <- ldply(chem_score2, rbind)
+    curchemscoremat = curchemscoremat[,-c(1)]
    
     cur_fname <- paste("chem_score", list_number, ".Rda", sep = "")
     save(curchemscoremat, file = cur_fname)

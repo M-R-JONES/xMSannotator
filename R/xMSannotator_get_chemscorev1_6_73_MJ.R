@@ -14,7 +14,8 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
                                        mass_defect_mode = mass_defect_mode,
                                        outlocorig = outloc,
                                        iso_ppm_tol = 5,
-                                       iso_int_tol = 0.3){
+                                       iso_int_tol = 0.3,
+                                       list_number = ''){
   
   #mchemicaldata = all data from the original dataA dataframe that is associated with a specific chemical formula from the DB
   #level_module_isop_annot = a dataframe providing details of the mz, retention time,ISgroup, RT clust module, intensity and mass defect of ALL features
@@ -136,7 +137,8 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
                                     mass_defect_mode = mass_defect_mode,
                                     max_isp = max_isp, 
                                     iso_int_tol = iso_int_tol, 
-                                    iso_ppm_tol = iso_ppm_tol)
+                                    iso_ppm_tol = iso_ppm_tol,
+                                    i = list_number)
     
     rm(level_module_isop_annot) 
     final_isp_annot_res2<-ldply(final_isp_annot_res_isp,rbind)
@@ -183,7 +185,9 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
   #higher frequency can mean either a single formula was assigned to multiple mz in that region, or that multiple isotopes were assigned to a single formula
   diffmatB<-lapply(1:length(mod_names),function(i){
     
-    groupA_num<-mod_names[i]
+    var_i = i #required for parLapply
+    
+    groupA_num<-mod_names[var_i]
     subdata<-mchemicaldata[which(mchemicaldata$Module_RTclust==groupA_num),]
     subdata<-subdata[order(subdata$time),]
     
@@ -246,12 +250,14 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
     #for each module associated with one-or-more annotations:
     for(i in 1:length(which(table_mod>=1))){
       
+      tb_mod = i
+      
       dup_add<-{}
       chemical_score<-(-99999) #base score, against which chemical scores are compared and updated
       conf_level<-0
       
       #extract information corresponding to the module & re-order by mz value
-      mchemicaldata<-mchemicaldata_orig[which(mchemicaldata_orig$Module_RTclust==top_mod[i]),]
+      mchemicaldata<-mchemicaldata_orig[which(mchemicaldata_orig$Module_RTclust==top_mod[tb_mod]),]
       mchemicaldata<-mchemicaldata[order(mchemicaldata$mz),]
 
       
@@ -293,14 +299,14 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
           
           best_chemical_score<- chemical_score
           best_conf_level<-temp_best_conf_level
-          best_mod_ind<-i
+          best_mod_ind<-tb_mod
           best_data<-mchemicaldata
           
         }else if (chemical_score==best_chemical_score){
           
           best_chemical_score<-chemical_score
           best_conf_level<-temp_best_conf_level
-          best_mod_ind<-c(i,best_mod_ind)
+          best_mod_ind<-c(tb_mod,best_mod_ind)
           best_data<-rbind(best_data,mchemicaldata)
           
         }
@@ -318,7 +324,10 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
 
       ## extract the correlation coefficients between peaks in the module ####
       # following lines are original approach - should work fine if retention times are not rounded in earlier steps
-      cor_mz<-global_cor[which(mzid%in%mzid_cur),which(mzid%in%mzid_cur)]
+      
+      
+      cor_mz=global_cor[which(colnames(global_cor) %in% mzid_cur), which(colnames(global_cor) %in% mzid_cur)]
+      #cor_mz<-global_cor[which(mzid%in%mzid_cur),which(mzid%in%mzid_cur)] #earlier approach
       cor_mz<-round(cor_mz,1)
       
       #if more than one feautre in currently-considered Module_RTclust, then matrix > 1 row.
@@ -524,14 +533,14 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
               
               best_chemical_score<- chemical_score
               best_conf_level<-temp_best_conf_level
-              best_mod_ind<-i
+              best_mod_ind<-tb_mod
               best_data<-mchemicaldata
               
             }else if (chemical_score==best_chemical_score){
               
               best_chemical_score<-chemical_score
               best_conf_level<-temp_best_conf_level
-              best_mod_ind<-c(i,best_mod_ind)
+              best_mod_ind<-c(tb_mod,best_mod_ind)
               best_data<-rbind(best_data,mchemicaldata)
               
             }
@@ -545,7 +554,9 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
             
             #updated approach, which includes a column for storing the isotope_elements information
             mchemicaldata<-cbind(mchemicaldata[,c(2:11)],mchemicaldata[,1],mchemicaldata[,c(12:15)])
-            colnames(mchemicaldata)<-c("mz","time","MatchCategory","theoretical.mz","chemical_ID","Name","Formula","MonoisotopicMass","Adduct","ISgroup","Module_RTclust","time.y","AvgIntensity", "MD", "isotope_elements")
+            colnames(mchemicaldata)<-c("mz","time","MatchCategory","theoretical.mz","chemical_ID","Name",
+                                       "Formula","MonoisotopicMass","Adduct","ISgroup","Module_RTclust","time.y",
+                                       "AvgIntensity", "MD", "isotope_elements")
             
             #get the identifier of the RTclust module (top_mod[i] under consideration)
             groupnumA<-unique(mchemicaldata$Module_RTclust)
@@ -695,14 +706,14 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
                   
                   best_chemical_score<- chemical_score
                   best_conf_level<-temp_best_conf_level
-                  best_mod_ind<-i
+                  best_mod_ind<-tb_mod
                   best_data<-mchemicaldata
                   
                 }else if (chemical_score==best_chemical_score){
                   
                   best_chemical_score<-chemical_score
                   best_conf_level<-temp_best_conf_level
-                  best_mod_ind<-c(i,best_mod_ind)
+                  best_mod_ind<-c(tb_mod,best_mod_ind)
                   best_data<-rbind(best_data,mchemicaldata)
                   
                 }
@@ -743,6 +754,7 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
   
   mchemicaldata = cbind(mchemicaldata, 'conf_level' = score_level, 'chemical_score' = best_chemical_score)
   
+  mchemicaldata = mchemicaldata[order(mchemicaldata$mz, mchemicaldata$time),]
   
   
   

@@ -111,7 +111,7 @@
 #' Jul;44(7):999-1016.
 #' @keywords ~xMSannotator ~multilevelannotation ~annotation
 multilevelannotation <- function(dataA, max.mz.diff = 10, 
-    max.rt.diff = 10, cormethod = "pearson", num_nodes = 2, 
+    max.rt.diff = 10, clustmethod = 'WGCNA', cormethod = "pearson", num_nodes = 2, 
     queryadductlist = c("all"), gradienttype = "Acetonitrile", 
     mode = "pos", outloc, db_name = "HMDB", adduct_weights = NA, 
     num_sets = 3000, allsteps = TRUE, corthresh = 0.7, NOPS_check = TRUE, 
@@ -121,13 +121,13 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     biofluid.location = NA, origin = NA, status = NA, boostIDs = NA, 
     max_isp = 5, MplusH.abundance.ratio.check = FALSE, customDB = NA, 
     HMDBselect = "union", mass_defect_window = 0.01, mass_defect_mode = "pos", 
-    dbAllinf = NA, pathwaycheckmode = "pm") {
+    dbAllinf = NA, pathwaycheckmode = "pm", iso_int_tol = 0.3, iso_ppm_tol = 5) {
   
   options(warn = -1)
   allowWGCNAThreads(nThreads = num_nodes)
   
   #load the adducts table
-  load("adducts_enviPat.rda")
+  data("adducts_enviPat.rda")
   setwd('~')
   
   ###### MOCK STRUCTURE OF TABLE ####
@@ -260,6 +260,34 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       
       ### PRE-PROCESS THE DATA MATRIX TO ENABLE CLUSTERING OF FEATURES
       
+      #create a series of unique mzid strings that map directly to the dataA object
+      mzid <- paste(round(dataA$mz,5), dataA$time, sep = "_")
+      
+      #remove mzid values if identical mz and retention time pairs exist (extent of rounding might cause inaccuracy here)
+      if (length(which(duplicated(mzid) == TRUE)) > 0) {
+        dataA <- dataA[-which(duplicated(mzid) == TRUE), ]
+      }
+      
+      
+      #remove rows with fewer-than 2 intensity values recorded
+      dataA = adply(dataA, 1, function(row){
+        
+        intens = row[,-c(1:2)]
+        
+        #only consider rows where > minimum number of values have been recorded
+        if(length(which(!is.na(intens)==T)) > 1){
+          return(intens)
+        }
+      })
+      
+      
+      #generate string comprising mz_retention time        
+      mzid <- paste(round(dataA$mz, 5), dataA$time, sep = "_")
+      
+      
+      write.csv(dataA, file.path(getwd(), 'Obj_for_iso_check.csv', fsep = '/'), sep = ',')
+      
+      
       #replace missing values (valid options for missing value replacement: 'NA' and 'mean')
       #strongly encourage users to use alternative approaches based on robust multivariate imputation
       
@@ -278,7 +306,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
           intens = row[,-c(1:2)]
           
           #only consider rows where > minimum number of values have been recorded
-          if(length(which(!is.na(intens)==T)) > 0){
+          if(length(which(!is.na(intens)==T)) > 1){
             
             #calculate row mean, excluding missing values
             m = rowMeans(intens, na.rm = TRUE)
@@ -289,18 +317,6 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
           }
         })
       }
-      
-      
-      #create a series of unique mzid strings that map directly to the dataA object
-      mzid <- paste(dataA$mz, dataA$time, sep = "_")
-      
-      #remove mzid values if identical mz and retention time pairs exist (extent of rounding might cause inaccuracy here)
-      if (length(which(duplicated(mzid) == TRUE)) > 0) {
-        dataA <- dataA[-which(duplicated(mzid) == TRUE), ]
-      }
-      
-      #generate string comprising mz_retention time        
-      mzid <- paste(dataA$mz, dataA$time, sep = "_")
       
       #perform fast calculation of the correlation coefficients between all features
       system.time(global_cor <- WGCNA::cor(t(dataA[,-c(1:2)]), nThreads = num_nodes, method = cormethod, use = "p"))
@@ -1341,9 +1357,12 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       clusterEvalQ(cl, "library(Rdisop)")
       clusterEvalQ(cl, "library(plyr)")
       clusterEvalQ(cl, "library(enviPat)")
+      clusterExport(cl, "mchemdata")
       clusterExport(cl, "calc_adduct_isotope_score")
-      clusterExport(cl, "get_chemscorev1.6.71_custom")
+      clusterExport(cl, "get_chemscorev1.6.73_custom")
+      clusterExport(cl, "assign_isotopes")
       clusterExport(cl, "getMolecule")
+      clusterExport(cl, "ddply")
       clusterExport(cl, "ldply")
       clusterExport(cl, "get_confidence_stage2")
       clusterExport(cl, "check_element")
@@ -1351,6 +1370,8 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       clusterExport(cl, "adduct_table")
       clusterExport(cl, "adduct_weights")
       clusterExport(cl, "outloc")
+      clusterExport(cl, "iso_ppm_tol")
+      clusterExport(cl, "iso_int_tol")
       
       parLapply(cl, 1:length(chemids_split), function(arg1) {
         
@@ -1369,115 +1390,100 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       
       stopCluster(cl)
       
-  } else {
-                
-    for (arg1 in 1:num_sets) {
-      multilevelannotationstep2(outloc1 = outloc, list_number = arg1)
-    }
-    
-  }
-        
-  setwd(outloc)
-  
-  #clean environment
-  rm(list = ls())
-  
-  try(rm(hmdbCompMZ), silent = TRUE)
-  
-  #load in earlier results
-  load("tempobjects.Rda")
-
-  print("Status 4: Pathway evaluation")
-  
-  annotres <- multilevelannotationstep3(outloc = outloc, adduct_weights = adduct_weights, 
-                                        boostIDs = boostIDs, pathwaycheckmode = pathwaycheckmode)
-  
-  setwd(outloc)
-  
-  rm(list = ls())
-  try(rm(hmdbCompMZ), silent = TRUE)
-  try(rm(hmdbCompMZ, env = .GlobalEnv), silent = TRUE)
-  
-  load("tempobjects.Rda")
-
-  print("Status 5: Assigning confidence levels")
-  
-  annotresstage4 <- multilevelannotationstep4(outloc = outloc, max.rt.diff = max_diff_rt, filter.by = filter.by,
-                                              adduct_weights = adduct_table, min_ions_perchem = min_ions_perchem,
-                                              boostIDs = boostIDs, max_isp = max_isp, max.mz.diff = max.mz.diff)
-  
-  rm(list = ls())
-  load("tempobjects.Rda")
- 
-  try(rm(hmdbAllinf, env = .GlobalEnv), silent = TRUE)
-  
-  
-  
-  if (redundancy_check == TRUE) {
-    
-    print("Status 6:Redundancy filtering")
-    
-    rm(list = ls())
-    
-    load("tempobjects.Rda")
-    
-    suppressWarnings(annotresstage5 <- multilevelannotationstep5(outloc = outloc, 
-      max.rt.diff = max_diff_rt, filter.by = filter.by, 
-      adduct_weights = adduct_weights, min_ions_perchem = min_ions_perchem, 
-      boostIDs = boostIDs, max_isp = max_isp, 
-      db_name = db_name, max.mz.diff = max.mz.diff))
-    
-    # print('Stage 5 confidence level distribution for unique
-    # chemical/metabolite IDs')
-    # print(table(annotresstage5$Confidence[-which(duplicated(annotresstage5$chemical_ID)==TRUE)]))
-    
-  } else {
-    
-    annotresstage5 <- {
-    }
-  }
-}
-        
     } else {
         
-        annotres <- {
-        }  #mchemdata
+      for (arg1 in 1:length(chemids_split) ) {
+        multilevelannotationstep2(outloc1 = outloc, list_number = arg1)
+      }
     }
+        
+    setwd(outloc)
     
+    #clean environment
+    rm(list = ls())
     
+    try(rm(hmdbCompMZ), silent = TRUE)
     
-}
+    #load in earlier results
+    load("tempobjects.Rda")
+  
+    print("Status 4: Pathway evaluation")
     
-    
-    print("################")
-    print("Final: Processing complete")
-    
-    
-    print("Output files description:")
-    print("Stage 1 includes clustering of features based on intensity and retention time without annotations")
-    print("Stage 2 includes clustering results along with simple m/z based database matching")
-    
-    if (allsteps == TRUE) {
-        print("Stage 3 includes scores for annotations assigned in stage 2 based on multiple criteria")
-        print("Stages 4 and 5 include the confidence levels before and after redundancy (multiple matches) filtering, respectively")
-    }
-    
-    suppressWarnings(sink(file = NULL))
+    annotres <- multilevelannotationstep3(outloc = outloc, adduct_weights = adduct_weights, 
+                                          boostIDs = boostIDs, pathwaycheckmode = pathwaycheckmode)
     
     setwd(outloc)
-    sink(file = "Readme.txt")
-    print("Output files description:")
-    print("Stage1.csv includes clustering of features based on intensity and retention time without annotations")
-    print("DBresults/Stage2.csv includes clustering results along with simple m/z based database matching")
     
-    if (allsteps == TRUE) {
-        print("DBresults/Stage3.csv includes scores for annotations assigned in stage 2 based on multiple criteria")
-        print("DBresults/Stage4.csv and DBresults/Stage5.csv include the confidence levels before and after redundancy (multiple matches) filtering, respectively")
+    rm(list = ls())
+    try(rm(hmdbCompMZ), silent = TRUE)
+    try(rm(hmdbCompMZ, env = .GlobalEnv), silent = TRUE)
+    
+    load("tempobjects.Rda")
+  
+    print("Status 5: Assigning confidence levels")
+    
+    annotresstage4 <- multilevelannotationstep4(outloc = outloc, max.rt.diff = max_diff_rt, filter.by = filter.by,
+                                                adduct_weights = adduct_table, min_ions_perchem = min_ions_perchem,
+                                                boostIDs = boostIDs, max_isp = max_isp, max.mz.diff = max.mz.diff)
+    
+    rm(list = ls())
+    load("tempobjects.Rda")
+   
+    try(rm(hmdbAllinf, env = .GlobalEnv), silent = TRUE)
+
+    if (redundancy_check == TRUE) {
+      
+      print("Status 6:Redundancy filtering")
+      
+      rm(list = ls())
+      
+      load("tempobjects.Rda")
+      
+      suppressWarnings(annotresstage5 <- multilevelannotationstep5(outloc = outloc, 
+        max.rt.diff = max_diff_rt, filter.by = filter.by, 
+        adduct_weights = adduct_weights, min_ions_perchem = min_ions_perchem, 
+        boostIDs = boostIDs, max_isp = max_isp, 
+        db_name = db_name, max.mz.diff = max.mz.diff))
+      
+      # print('Stage 5 confidence level distribution for unique
+      # chemical/metabolite IDs')
+      # print(table(annotresstage5$Confidence[-which(duplicated(annotresstage5$chemical_ID)==TRUE)]))
+      
+    } else {
+      annotresstage5 <- {}
     }
-    suppressWarnings(sink(file = NULL))
-    
-    if (allsteps == TRUE) {
-        # return(list('stage4'=annotresstage4,'stage5'=annotresstage5))
-    }
-    
+  }
+  
+  
+  print("################")
+  print("Final: Processing complete")
+  
+  
+  print("Output files description:")
+  print("Stage 1 includes clustering of features based on intensity and retention time without annotations")
+  print("Stage 2 includes clustering results along with simple m/z based database matching")
+  
+  if (allsteps == TRUE) {
+    print("Stage 3 includes scores for annotations assigned in stage 2 based on multiple criteria")
+    print("Stages 4 and 5 include the confidence levels before and after redundancy (multiple matches) filtering, respectively")
+  }
+  
+  suppressWarnings(sink(file = NULL))
+  
+  setwd(outloc)
+  sink(file = "Readme.txt")
+  print("Output files description:")
+  print("Stage1.csv includes clustering of features based on intensity and retention time without annotations")
+  print("DBresults/Stage2.csv includes clustering results along with simple m/z based database matching")
+  
+  if (allsteps == TRUE) {
+    print("DBresults/Stage3.csv includes scores for annotations assigned in stage 2 based on multiple criteria")
+    print("DBresults/Stage4.csv and DBresults/Stage5.csv include the confidence levels before and after redundancy (multiple matches) filtering, respectively")
+  }
+  suppressWarnings(sink(file = NULL))
+  
+  if (allsteps == TRUE) {
+    # return(list('stage4'=annotresstage4,'stage5'=annotresstage5))
+  }
 }
+

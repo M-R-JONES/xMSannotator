@@ -28,11 +28,13 @@ assign_isotopes = function(add_indx,
                            mass_defect_mode = "pos",
                            max_isp = 5, 
                            iso_int_tol = 0.3, 
-                           iso_ppm_tol = 5){
+                           iso_ppm_tol = 5,
+                           i = ''){
   
   print(paste('Adduct index', add_indx, sep = ''))
   
   #from mchemicaldata, extract the row corresponding to the input adduct index
+  #final_isp_annot_res<-cbind(paste("group",i,sep=""),mchemicaldata[add_indx,])#used before parLapply
   final_isp_annot_res<-cbind(paste("group",i,sep=""),mchemicaldata[add_indx,])
   
   #get the ISgroup corresponding to the input adduct
@@ -159,9 +161,47 @@ assign_isotopes = function(add_indx,
   
   if(nrow(put_isp_masses_curmz_data)>0){
     
+    #read in the earlier-saved Obj_for_iso_check.csv object, which was a cleaned-up (non-filled) version of dataA
+    iso.check = as.data.frame(read.csv(file.path( '../Obj_for_iso_check.csv'), header = T, as.is = T, check.names = F))
+    iso.check = iso.check[,-c(1)]
+    
+    #from the iso.check obj, get the row corresponding to the currently-considered adduct form
+    iso.check$mzid = paste(round(iso.check$mz,5), iso.check$time, sep = '_')
+    ref_peak_row = iso.check[which(iso.check$mzid == paste(mchemicaldata$mz[add_indx], 
+                                                      mchemicaldata$time[add_indx], sep = '_')),]
+
+    #for each isotope candidate, recover the intensity information from ....
+    iso.candidates.mzid = as.list(paste(round(put_isp_masses_curmz_data$mz,5), put_isp_masses_curmz_data$time, sep='_'))
+    
+    iso.candidates.info = ldply(iso.candidates.mzid, function(id, iso.check, ref_peak_row){
+      
+      iso.candidate = iso.check[iso.check$mzid == id,]
+      temp.df = rbind(ref_peak_row, iso.candidate)
+      
+      int.ratios = apply(temp.df[,-c(1:2, ncol(temp.df))], 2, function(col.check) {
+        
+        if(length(!is.na(col.check)) >= 2){
+          
+          int.ratio = col.check[2] / col.check[1]
+          return(int.ratio)
+          
+        }
+
+      })
+      
+      int.ratios.avrg = median(int.ratios, na.rm = T)
+      
+      return(data.frame('mzid' = id, 'int_ratios_avrg' = int.ratios.avrg))
+
+    }, iso.check = iso.check, ref_peak_row)
+    
+    
+    int_vec = iso.candidates.info$int_ratios_avrg    
+ 
+    
     #calculate the relative intensities of peaks versus the monoisotopic mass
-    int_vec<-put_isp_masses_curmz_data$AvgIntensity
-    int_vec<-int_vec/mchemicaldata$AvgIntensity[add_indx] 
+    #int_vec<-put_isp_masses_curmz_data$AvgIntensity
+    #int_vec<-int_vec/mchemicaldata$AvgIntensity[add_indx] 
     
     ###no idea why these elements are excluded###
     #curformula<-gsub(curformula,pattern="Sr",replacement="")
@@ -285,7 +325,11 @@ assign_isotopes = function(add_indx,
               
               #IF > 1 ISOTOPE WITHIN PPM TOLERANCE, CHECK IF ANY WITHIN ISO_INT_TOL
               #start by calculating ratio of candidate isotope peak to monoisotopic peak
-              percent = (put_isp_masses_curmz_data$AvgIntensity[isp_v] / mchemicaldata$AvgIntensity[add_indx])*100
+              
+              #percent = (iso.candidates.info$int_ratios_avrg[isp_v] / mchemicaldata$AvgIntensity[add_indx])*100
+              
+              percent = (iso.candidates.info$int_ratios_avrg[isp_v])*100
+              
               
               ##### IMPORTANT PARAMETER ###########
               #iso_int_tol = 0.05 #5% tolerance allowed
@@ -371,7 +415,7 @@ assign_isotopes = function(add_indx,
                     final_isp_annot_res<-rbind(final_isp_annot_res,temp_var)
                   }
                   
-                  return(final_isp_annot_res)
+                  
                   
                 }
               }
@@ -381,4 +425,7 @@ assign_isotopes = function(add_indx,
       }
     }
   }
+  
+  return(final_isp_annot_res)
+  
 }
