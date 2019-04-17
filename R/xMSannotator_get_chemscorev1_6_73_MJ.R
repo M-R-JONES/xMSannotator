@@ -141,19 +141,24 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
                                     i = list_number)
     
     rm(level_module_isop_annot) 
-    final_isp_annot_res2<-ldply(final_isp_annot_res_isp,rbind)
+
+    ##earlier approach to merging isotope assignments and input data:
+    #final_isp_annot_res2<-ldply(final_isp_annot_res_isp,rbind)
+    #final_isp_annot_res2<-final_isp_annot_res2[,-c(1)] #remove the isotope grouping information
+    #rm(final_isp_annot_res_isp)
+    #mchemicaldata<-rbind(final_isp_annot_res_all,final_isp_annot_res2) #finally, add annotated isotope information to the mchemicaldata matrix
     
-    #NOT USED BELOW - getting total number of features in each isotope group
-    #isp_group_check<-table(final_isp_annot_res2$mz)
-    #good_groups<-which(isp_group_check>=max(isp_group_check)) #change to > 1 makes sense (i.e. an adduct + 1 isotope, minimally)
-    #group_name<-names(isp_group_check)[good_groups]
+    #new approach to mergining isotope assignments and input data:
+    final_isp_annot_res2 = rbindlist(final_isp_annot_res_isp, idcol = T)
+    colnames(final_isp_annot_res2) = gsub('.id', 'id', colnames(final_isp_annot_res2))
+    final_isp_annot_res2 = final_isp_annot_res2[,-c(2)] #drop group column
     
-    #remove the isotope grouping information
-    final_isp_annot_res2<-final_isp_annot_res2[,-c(1)]
+    #generate a series of empty columns (required for rbind)
+    final_isp_annot_res_all$query_abund = NA
+    final_isp_annot_res_all$ref_abund = NA
+    final_isp_annot_res_all$dotprodcosine = NA
+    final_isp_annot_res_all$id = NA
     
-    rm(final_isp_annot_res_isp)
-    
-    #finally, add annotated isotope information to the mchemicaldata matrix
     mchemicaldata<-rbind(final_isp_annot_res_all,final_isp_annot_res2)  #[,-c(12)]
     
     ##################################################################################################
@@ -163,6 +168,9 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
   }
   
   #removed rows (corresponding to monisotopic peaks) that were inserted during addition of isotope information
+ 
+  mchemicaldata =mchemicaldata[!is.na(mchemicaldata$id),]
+  
   mchemicaldata<-unique(mchemicaldata)
 
   bad_rows<-which(is.na(mchemicaldata$mz)==TRUE)
@@ -486,7 +494,9 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
           }
           
           #remove empty rows (ignore isotope_elements column during checks)
-          keep.indx = which(complete.cases(mchemicaldata[,c(1:(ncol(mchemicaldata)-1))])) #check which rows are not empty
+          
+          keep.indx = which(complete.cases(mchemicaldata[,-c(grep('isotope_elements', colnames(mchemicaldata)))]))
+          #keep.indx = which(complete.cases(mchemicaldata[,c(1:(ncol(mchemicaldata)-1))])) #check which rows are not empty
           mchemicaldata = mchemicaldata[keep.indx,]
           rm(keep.indx)
           
@@ -553,10 +563,32 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
             mchemicaldata$Module_RTclust<-gsub(mchemicaldata$Module_RTclust,pattern="_[0-9]*",replacement="")
             
             #updated approach, which includes a column for storing the isotope_elements information
-            mchemicaldata<-cbind(mchemicaldata[,c(2:11)],mchemicaldata[,1],mchemicaldata[,c(12:15)])
-            colnames(mchemicaldata)<-c("mz","time","MatchCategory","theoretical.mz","chemical_ID","Name",
-                                       "Formula","MonoisotopicMass","Adduct","ISgroup","Module_RTclust","time.y",
-                                       "AvgIntensity", "MD", "isotope_elements")
+            
+            mchemicaldata = data.frame('mz' = mchemicaldata$mz,
+                                       'time' = mchemicaldata$time,
+                                       'MatchCategory' = mchemicaldata$MatchCategory,
+                                       'theoretical.mz' = mchemicaldata$theoretical.mz,
+                                       'chemical_ID' = mchemicaldata$chemical_ID,
+                                       'Name' = mchemicaldata$Name,
+                                       'Formula' = mchemicaldata$Formula,
+                                       'MonoisotopicMass' = mchemicaldata$MonoisotopicMass,
+                                       'Adduct' = mchemicaldata$Adduct,
+                                       'ISgroup' = mchemicaldata$ISgroup,
+                                       'Module_RTclust' = mchemicaldata$Module_RTclust,
+                                       'time.y' = mchemicaldata$time.y,
+                                       'AvgIntensity' = mchemicaldata$AvgIntensity,
+                                       'MD' = mchemicaldata$MD,
+                                       'isotope_elements' = mchemicaldata$isotope_elements,
+                                       'query_abund' = mchemicaldata$query_abund,
+                                       'ref_abund' = mchemicaldata$ref_abund,
+                                       'dotprodcosine' = mchemicaldata$dotprodcosine,
+                                       'id' = mchemicaldata$id)
+            
+            
+            #mchemicaldata<-cbind(mchemicaldata[,c(2:11)],mchemicaldata[,1],mchemicaldata[,c(12:15)])
+            #colnames(mchemicaldata)<-c("mz","time","MatchCategory","theoretical.mz","chemical_ID","Name",
+            #                           "Formula","MonoisotopicMass","Adduct","ISgroup","Module_RTclust","time.y",
+            #                           "AvgIntensity", "MD", "isotope_elements")
             
             #get the identifier of the RTclust module (top_mod[i] under consideration)
             groupnumA<-unique(mchemicaldata$Module_RTclust)

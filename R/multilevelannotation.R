@@ -1351,7 +1351,7 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     
     print("Status 3: Calculating scores for individual chemicals/metabolites")
     
-    if (length(chemids_split) > num_nodes) {
+    if (length(chemids_split) >= num_nodes) {
       
       # if(length(chemids_split) > 10){
       #   library(dplyr)
@@ -1381,9 +1381,12 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       clusterEvalQ(cl, "library(Rdisop)")
       clusterEvalQ(cl, "library(plyr)")
       clusterEvalQ(cl, "library(enviPat)")
+      clusterEvalQ(cl, "library(data.table)")
+      clusterExport(cl, "rbindlist")
       clusterExport(cl, "mchemdata")
       clusterExport(cl, "calc_adduct_isotope_score")
       clusterExport(cl, "get_chemscorev1.6.73_custom")
+      clusterExport(cl, "dotprodcosine")
       clusterExport(cl, "assign_isotopes")
       clusterExport(cl, "getMolecule")
       clusterExport(cl, "ddply")
@@ -1396,8 +1399,6 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
       clusterExport(cl, "outloc")
       clusterExport(cl, "iso_ppm_tol")
       clusterExport(cl, "iso_int_tol")
-      
-      require(data.table)
 
       annotation.df = rbindlist(parLapply(cl, 1:length(chemids_split), function(arg1) {
 
@@ -1412,6 +1413,8 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
         }
 
       }), idcol = T)
+      
+      write.csv(annotation.df, file.path(outloc, 'annotations_with_isotopes_idotp.csv', fsep = ''), row.names = F)
       
       # max.time.diff=max.rt.diff,filter.by=filter.by,max_isp=max_isp,numnodes=1,MplusH.abundance.ratio.check=MplusH.abundance.ratio.check,mass_defect_window=mass_defect_window,mass_defect_mode=mass_defect_mode
       

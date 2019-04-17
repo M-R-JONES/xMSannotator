@@ -1,4 +1,4 @@
-multilevelannotationstep2 <- function(outloc1, list_number) {
+multilevelannotationstep2 <- function(list_number, outloc1) {
     
     # ,adduct_weights=NA,max.time.diff=NA,filter.by=c('M+H'),max_isp=100,numnodes=2,
     # MplusH.abundance.ratio.check=FALSE,mass_defect_window=0.01,mass_defect_mode='pos'){
@@ -116,6 +116,8 @@ multilevelannotationstep2 <- function(outloc1, list_number) {
       return(out)
 
     })
+    
+    
     
     cur_fname <- paste("chem_score", list_number, "_a.Rda", sep = "")
     chem_score2 <- chem_score[which(chem_score != "NULL")]

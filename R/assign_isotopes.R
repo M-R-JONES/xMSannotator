@@ -37,6 +37,11 @@ assign_isotopes = function(add_indx,
   #final_isp_annot_res<-cbind(paste("group",i,sep=""),mchemicaldata[add_indx,])#used before parLapply
   final_isp_annot_res<-cbind(paste("group",i,sep=""),mchemicaldata[add_indx,])
   
+  #set up empty column for capturing the query-based abundance ratio 
+  final_isp_annot_res$query_abund = 0
+  final_isp_annot_res$ref_abund = 0
+  final_isp_annot_res$dotprodcosine = 0
+  
   #get the ISgroup corresponding to the input adduct
   isp_group<-as.character(mchemicaldata$ISgroup[add_indx])
   
@@ -103,7 +108,10 @@ assign_isotopes = function(add_indx,
   #}
   
   #keep only isotope peaks, not the monoisotopic peak!
-  top_isotopes = mol_isos[[1]][order(mol_isos[[1]][,2], decreasing = T)[1:max_isp+1],] #the +1 is to account for the monoisotopic peak
+  top_isotopes = mol_isos[[1]][order(mol_isos[[1]][,2], decreasing = T)[(1:max_isp)+1],] #the +1 is to account for the monoisotopic peak
+  
+  #this object is used for the dot product consider calculations below
+  #top_isotopes_with_first = mol_isos[[1]][order(mol_isos[[1]][,2], decreasing = T)[(0:(max_isp+1))],] #the +1 is to account for the monoisotopic peak
   
   top_isotopes = data.frame(top_isotopes, check.names = F)
   
@@ -339,13 +347,42 @@ assign_isotopes = function(add_indx,
                                 iso_hits$abundance > (percent - (percent * iso_int_tol)) &
                                   iso_hits$abundance < (percent + (percent * iso_int_tol)))
               
-              #temp = rbind( data.frame('mz' =top_isotopes$mz, 'int'=top_isotopes$abundance, 'type' = 'ref'), 
-              #              data.frame('mz' = put_isp_masses_curmz_data$mz, 'int' = (put_isp_masses_curmz_data$AvgIntensity / mchemicaldata$AvgIntensity[add_indx])*100, 
-              #                         'type' = 'exp')   )
-              #rownames(temp) = paste(temp$mz, temp$type, sep = '_')
-              #temp
-              #temp = hclust(dist(temp[,c(1:2)], diag = T))
-              #cutree(temp, 5)
+              
+              ######## IF MULTIPLE HITS ARE DETECTED, USE DOT PRODUCT COSINE TO ASSIGN MOST LIKELY ISOTOPE ID ####
+              
+              if(nrow(iso_hits) > 1){
+                query.data = data.frame('id' = 'query', 'mz' = put_isp_masses_curmz_data$mz[isp_v], 'int' = int_vec[isp_v]*100)
+                ref.data = data.frame( 'id' = 'ref', 'mz' = iso_hits$mz, 'int' = iso_hits$abundance)
+                
+                #generate a dataframe detailing the query data (experimental) and reference (theoretical) data
+                compare.df = rbind(query.data, ref.data)
+                compare.df = cbind( 'key' = paste(compare.df$mz, compare.df$int, sep='_'), compare.df)
+                
+                #for each row in the compare.df object, calculated the mz-weighted intensity value
+                compare.df = ddply(compare.df, ~key, function(row.in) { 
+                  weighted = ((row.in$mz)^2) * sqrt(row.in$int) 
+                  row.in$weighted = weighted
+                  row.in
+                } )
+                
+                #set up an empty column for capturing the dot product cosine information
+                compare.df$dotprod = 0
+                
+                for(ref.indx in 2:nrow(compare.df)){
+                  
+                  query = compare.df[which(compare.df$id == 'query'),]$weighted
+                  ref = compare.df[ref.indx, ]$weighted
+                  
+                  compare.df$dotprod[ref.indx] = (query * ref) / sqrt( (query^2) *  (ref^2) )
+                  
+                }
+                
+                #now overwrite the iso_hits object to keep the theoretical isotope feature best-matching the query feature
+                assigned = subset(compare.df, compare.df$id == 'ref' & compare.df$dotprod == max(compare.df$dotprod))
+                iso_hits = iso_hits[which(paste(iso_hits$mz, iso_hits$abundance, sep = '_') %in% assigned$key),]
+              }
+              
+              
               
               #FORM NAME IS FOR NEUTRAL MOLECULE AS DEFINED IN THE USER-SELECTED DATABASE!
               if(nrow(iso_hits) > 0){
@@ -401,7 +438,13 @@ assign_isotopes = function(add_indx,
                 ###### MODIFIED THIS - incorrectly reference 'isnum' versus 'isnum2'
                 #temp_var$Adduct<-paste(mchemicaldata$Adduct[add_indx],"_[",isp_sign,(abs(isnum2)),"]",sep="")
                 temp_var<-cbind(paste("group",i,sep=""),temp_var)
+                temp_var$query_abund = int_vec[isp_v]*100
+                temp_var$ref_abund = iso_hits$abundance[1]
+                temp_var$dotprodcosine = 0
+                
                 final_isp_annot_res<-as.data.frame(final_isp_annot_res)
+                
+                
                 
                 if(nrow(temp_var)>0){
                   
@@ -415,9 +458,10 @@ assign_isotopes = function(add_indx,
                     final_isp_annot_res<-rbind(final_isp_annot_res,temp_var)
                   }
                   
-                  
-                  
                 }
+                
+                
+                
               }
             }
           }
@@ -425,6 +469,13 @@ assign_isotopes = function(add_indx,
       }
     }
   }
+  
+  #fill in the missing abundance information for the adduct_peak considered here (i.e. what should it's abundance be?)
+  final_isp_annot_res$query_abund[1] = mol_isos[[1]][1,2]
+  final_isp_annot_res$ref_abund[1] = mol_isos[[1]][1,2]
+
+  final_isp_annot_res$dotprodcosine = dotprodcosine(df = final_isp_annot_res, query_mz_colname = 'mz', ref_mz_colname = 'theoretical.mz', 
+                                                    query_int_colname = 'query_abund', ref_int_colname = 'ref_abund')
   
   return(final_isp_annot_res)
   
