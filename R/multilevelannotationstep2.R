@@ -43,9 +43,9 @@ multilevelannotationstep2 <- function(list_number, outloc1) {
     #     colnames(adduct_weights) <- c("Adduct", "Weight")
     # }
     
-    if(is.na(adduct_weights) == TRUE){
+    if(!exists("adduct_weights") == T){
       #treats all adducts equally
-      load("adducts_enviPat.rda")
+      data("adducts_enviPat.rda")
       adduct_weights = adduct_table
     }
     

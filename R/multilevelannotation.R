@@ -1334,11 +1334,13 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
   } else {
     print("Status 1: Skipping step 1.")
     print("Status 2: Using existing step1_results.Rda file.")
-    
-    allsteps_temp <- allsteps
-    load("tempobjects.Rda")
-    load("step1_results.Rda")
-    allsteps <- allsteps_temp
+    setwd(outloc)
+    load("tempobjects.rda")
+    print('loaded tempobjects.rda')
+    Sys.sleep(2)
+    print(paste('working directory set to: ', getwd(), sep = ''))
+    load("step1_results.rda")
+    Sys.sleep(2)
   }
 
   #############################################################################
@@ -1423,11 +1425,36 @@ multilevelannotation <- function(dataA, max.mz.diff = 10,
     } else {
       annotation.df = rbindlist(lapply(as.list(1:length(chemids_split)), multilevelannotationstep2, outloc1=outloc ),idcol = T)
     }
-        
+       
+    #mapping annotation results to input data set
+    
+    annotation.df$map = paste(round(annotation.df$mz,5), round(annotation.df$time,5), sep='_')
+    dataA_features = paste(round(dataA$mz,5), round(dataA$time, 5), sep = '_')
+    
+    dataA$Name = ''
+    dataA$isotopes = ''
+    dataA$isotope_elements = ''
+    dataA$Adduct = ''
+    dataA$dotprodcosine = ''
+    
+    map.df = ddply(annotation.df, ~map, function(row.in, dataA, dataA_features) {
+      
+      temp = dataA[which(dataA_features == row.in$map),]
+      temp$isotopes = row.in$Formula
+      temp$Adduct = row.in$Adduct
+      temp$dotprodcosine = row.in$dotprodcosine
+      temp$Name = row.in$Name
+      
+      temp
+      
+    }, dataA = dataA, dataA_features = paste(round(dataA$mz,5), round(dataA$time, 5), sep = '_'))
+
+    write.csv(map.df, file.path(outloc, 'annotations_mapped.csv', fsep = ''), row.names = F)
+     
     setwd(outloc)
     
     #clean environment
-    rm(list = ls())
+    #rm(list = ls())
     
     try(rm(hmdbCompMZ), silent = TRUE)
     

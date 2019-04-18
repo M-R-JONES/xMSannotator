@@ -217,7 +217,7 @@ get_chemscorev1.6.73_custom = function(chemicalid = chemid,
   
   #clean up enviroment
   rm(diffmatB)
-  rm(final_isp_annot_res)
+  rm(final_isp_annot_res2)
   
   #STORE INFORMATION RELATING TO ISOTOPE ASSIGNMENTS!
   write.table(mchemicaldata,file="../Stage2_withisotopes.txt",append=TRUE,sep="\t",col.names=FALSE)

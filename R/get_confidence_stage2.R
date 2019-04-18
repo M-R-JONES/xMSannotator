@@ -97,7 +97,7 @@ get_confidence_stage2 <- function(curdata, adduct_weights = NA, max_diff_rt = 10
     if (length(check1) > 0) {
     
       #get the intensity for the adduct form with lowest-number of monomeric units
-      max_int_min_mol <- max(curdata$AvgIntensity[min_mol_ind])
+      max_int_min_mol <- max(curdata$AvgIntensity[min_nummol_ind])
       
       #generate object for recording which assignments are possibly bad annotations
       bad_ind_status <- rep(0, length(check1))
