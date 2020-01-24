@@ -1,0 +1,54 @@
+---
+title: "xMSannotator_Eawag"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r load packages}
+library(WGCNA)
+library(XML)
+library(R2HTML)
+library(RCurl)
+#library(SSOAP)
+library(limma)
+library(plyr)
+library(dplyr)
+library(png)
+library(snow)
+library(flashClust)
+library(enviPat)
+library(data.table)
+library(Rdisop)
+library(enviPat)
+```
+
+## Import all relevant functions
+
+```{r include = FALSE}
+#loading functions
+funcs = list.files(file.path(getwd(), 'R', fsep = '/'),full.names = T, pattern = '.R')
+funcs = funcs[-grep('scraps_temp.R', funcs)]
+lapply(funcs, function(x) { source(x)})
+```
+
+## Loading model data
+
+Load object 'basic_inputs.Rdata' to import the test data set and basic starting variables
+
+```{r}
+## Loading model data
+#read in the output from xcms-CAMERA-PyDecon + basic processing parameters:
+load('basic_inputs.Rdata')
+for(i in 1:length(vars)) assign(names(vars)[i], vars[[i]])
+rm(vars)
+```
+
+## Multilevel annotation
+
+Multilevel annotation begins with defining a dissimilarity matrix. This is basically a matrix describing the difference between all measured m/z values in the input data.
+
+
+
+
